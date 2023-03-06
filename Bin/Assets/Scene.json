@@ -1,0 +1,57 @@
+// Scene
+{
+  // Global parameters
+  "CameraFocus": [ 0.0, 16.0, 0.0 ],
+  "CameraDistance": 27.0,
+
+  "Lights": [
+    {
+      "Position": [ -100.0, 500.0, -490.0 ],
+      "Range": 25.0,
+      "Color": [ 1.0, 0.95, 0.76 ],
+      "Intensity": 7.0
+    }
+  ],
+
+  // Zero ambient intensity: the ambient fully depends on the light probe
+  "AmbientColor": [ 0.6, 0.8, 1.0 ],
+  "AmbientIntensity": 0.0,
+
+  // Characters
+  "SkinnedMeshes": [
+    {
+      "Mesh": "Assets/TenshinX/TenshinX.sdkmesh",
+      "Anim": "Assets/TenshinX/TenshinX.sdkmesh_anim",
+      "TwoSidedAll": 0
+    }
+  ],
+  "Characters": [
+    {
+      "Name": "TenshinX",
+      "MeshIndex": 0,
+      "Position": [ 2.0, 5.0, 0.0 ],
+      "RotationAngle": -0.3
+    }
+  ],
+
+  // Static models
+  "MapSize": 512,
+  "OctreeLooseCoeff": 0.97,
+  "ShadowMapSize": 1360,
+
+  "StaticMeshes": [ 
+    {
+        "Mesh": "Assets/Island/Island.sdkmesh"
+    }
+  ],
+  "StaticModels": [
+    {
+      "Name": "Island",
+      "MeshIndex": 0
+    }
+  ],
+
+  // Natural environment
+  "Water": 1,
+  "SkyTexture": "Assets/sky.dds"
+}
