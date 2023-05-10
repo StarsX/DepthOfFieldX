@@ -10,6 +10,7 @@
 //*********************************************************
 
 #include "DepthOfFieldX.h"
+#include "stb_image_write.h"
 
 using namespace std;
 using namespace XUSG;
@@ -22,7 +23,8 @@ DepthOfFieldX::DepthOfFieldX(uint32_t width, uint32_t height, wstring name) :
 	m_useIBL(true),
 	m_isPaused(false),
 	m_isTracking(false),
-	m_sceneFile(L"Assets/Scene.json")
+	m_sceneFile(L"Assets/Scene.json"),
+	m_screenShot(0)
 {
 #if defined (_DEBUG)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
@@ -227,11 +229,11 @@ void DepthOfFieldX::CreateResources()
 	for (auto n = 0u; n < 2; ++n)
 	{
 		m_temporalColors[n] = RenderTarget::MakeUnique(Api);
-		XUSG_N_RETURN(m_temporalColors[n]->Create(m_device.get(), m_width, m_height, FormatHDR, 1, ResourceFlag::NONE,
+		XUSG_N_RETURN(m_temporalColors[n]->Create(m_device.get(), m_width, m_height, FormatHDR, 1, ResourceFlag::ALLOW_UNORDERED_ACCESS,
 			1, 1, nullptr, false, MemoryFlag::NONE, (L"TemporalColor" + to_wstring(n)).c_str()), ThrowIfFailed(E_FAIL));
 
 		m_metaBuffers[n] = RenderTarget::MakeUnique(Api);
-		XUSG_N_RETURN(m_metaBuffers[n]->Create(m_device.get(), m_width, m_height, Format::R8_UNORM, 1, ResourceFlag::NONE,
+		XUSG_N_RETURN(m_metaBuffers[n]->Create(m_device.get(), m_width, m_height, Format::R8_UNORM, 1, ResourceFlag::ALLOW_UNORDERED_ACCESS,
 			1, 1, nullptr, false, MemoryFlag::NONE, (L"MetadataBuffer" + to_wstring(n)).c_str()), ThrowIfFailed(E_FAIL));
 	}
 
@@ -283,6 +285,11 @@ void DepthOfFieldX::ResizeAssets()
 			const Descriptor srvs[] = { m_temporalColors[n]->GetSRV(), m_sceneDepth->GetSRV() };
 			srvTable->SetDescriptors(0, static_cast<uint32_t>(size(srvs)), srvs);
 			XUSG_X_RETURN(m_srvTables[SRV_ANTIALIASED + n], srvTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
+
+			const auto uavTable = Util::DescriptorTable::MakeUnique(Api);
+			const Descriptor uavs[] = { m_temporalColors[n]->GetUAV(), m_metaBuffers[n]->GetUAV() };
+			uavTable->SetDescriptors(0, static_cast<uint32_t>(size(uavs)), uavs);
+			XUSG_X_RETURN(m_uavTables[n], uavTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
 		}
 
 		XUSG_N_RETURN(m_postprocess->SetDepth(m_sceneDepth.get()), ThrowIfFailed(E_FAIL));
@@ -432,6 +439,9 @@ void DepthOfFieldX::OnKeyUp(uint8_t key)
 	case VK_SPACE:
 		m_isPaused = !m_isPaused;
 		break;
+	case VK_F11:
+		m_screenShot = 1;
+		break;
 	}
 }
 
@@ -542,6 +552,7 @@ void DepthOfFieldX::PopulateCommandList()
 
 	// Render scene
 	//const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+	const auto pRenderTarget = m_renderTargets[m_frameIndex].get();
 	//pCommandList->ClearRenderTargetView(m_renderTargets[m_frameIndex]->GetRTV(), clearColor);
 	m_scene->Render(pCommandList);
 
@@ -550,18 +561,28 @@ void DepthOfFieldX::PopulateCommandList()
 	// Temporal AA
 	RenderTarget* ppDsts[] = { m_temporalColors[m_frameParity].get(), m_metaBuffers[m_frameParity].get() };
 	Texture* ppSrcs[] = { m_sceneColor.get(), m_sceneMasks.get(), m_metaBuffers[!m_frameParity].get() };
-	m_postprocess->Antialias(pCommandList, ppDsts, ppSrcs, m_srvTables[SRV_AA_INPUT + m_frameParity],
+	//m_postprocess->Antialias(pCommandList, ppDsts, ppSrcs, m_srvTables[SRV_AA_INPUT + m_frameParity],
+		//static_cast<uint8_t>(size(ppDsts)), static_cast<uint8_t>(size(ppSrcs)));
+	m_postprocess->TemporalAA(pCommandList, ppDsts, ppSrcs, m_uavTables[m_frameParity], m_srvTables[SRV_AA_INPUT + m_frameParity],
 		static_cast<uint8_t>(size(ppDsts)), static_cast<uint8_t>(size(ppSrcs)));
 
 	// Postprocessing
-	m_postprocess->Render(pCommandList, m_renderTargets[m_frameIndex].get(), m_temporalColors[m_frameParity].get(),
+	m_postprocess->Render(pCommandList, pRenderTarget, m_temporalColors[m_frameParity].get(),
 		m_srvTables[SRV_ANTIALIASED + m_frameParity]);
 	m_frameParity = !m_frameParity;
 
 	// Indicate that the back buffer will now be used to present.
 	ResourceBarrier barrier;
-	const auto numBarriers = m_renderTargets[m_frameIndex]->SetBarrier(&barrier, ResourceState::PRESENT);
+	const auto numBarriers = pRenderTarget->SetBarrier(&barrier, ResourceState::PRESENT);
 	pCommandList->Barrier(numBarriers, &barrier);
+
+	// Screen-shot helper
+	if (m_screenShot == 1)
+	{
+		if (!m_readBuffer) m_readBuffer = Buffer::MakeUnique();
+		pRenderTarget->ReadBack(pCommandList, m_readBuffer.get(), &m_rowPitch);
+		m_screenShot = 2;
+	}
 
 	XUSG_N_RETURN(pCommandList->Close(), ThrowIfFailed(E_FAIL));
 }
@@ -596,6 +617,43 @@ void DepthOfFieldX::MoveToNextFrame()
 
 	// Set the fence value for the next frame.
 	m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+
+	// Screen-shot helper
+	if (m_screenShot)
+	{
+		if (m_screenShot > FrameCount)
+		{
+			char timeStr[15];
+			tm dateTime;
+			const auto now = time(nullptr);
+			if (!localtime_s(&dateTime, &now) && strftime(timeStr, sizeof(timeStr), "%Y%m%d%H%M%S", &dateTime))
+				SaveImage((string("DepthOfFieldX_") + timeStr + ".png").c_str(), m_readBuffer.get(), m_width, m_height, m_rowPitch);
+			m_screenShot = 0;
+		}
+		else ++m_screenShot;
+	}
+}
+
+void DepthOfFieldX::SaveImage(char const* fileName, Buffer* pImageBuffer, uint32_t w, uint32_t h, uint32_t rowPitch, uint8_t comp)
+{
+	assert(comp == 3 || comp == 4);
+	const auto pData = static_cast<const uint8_t*>(pImageBuffer->Map(nullptr));
+
+	//stbi_write_png_compression_level = 1024;
+	vector<uint8_t> imageData(comp * w * h);
+	const auto sw = rowPitch / 4; // Byte to pixel
+	for (auto i = 0u; i < h; ++i)
+		for (auto j = 0u; j < w; ++j)
+		{
+			const auto s = sw * i + j;
+			const auto d = w * i + j;
+			for (uint8_t k = 0; k < comp; ++k)
+				imageData[comp * d + k] = pData[4 * s + k];
+		}
+
+	stbi_write_png(fileName, w, h, comp, imageData.data(), 0);
+
+	pImageBuffer->Unmap();
 }
 
 double DepthOfFieldX::CalculateFrameStats(float* pTimeStep)
@@ -618,6 +676,8 @@ double DepthOfFieldX::CalculateFrameStats(float* pTimeStep)
 
 		wstringstream windowText;
 		windowText << setprecision(2) << fixed << L"    fps: " << fps;
+		windowText << L"    [F11] screen shot";
+
 		SetCustomWindowText(windowText.str().c_str());
 	}
 

@@ -113,6 +113,43 @@ void PostprocessX::DepthOfField(XUSG::CommandList* pCommandList, XUSG::Texture* 
 	}
 }
 
+void PostprocessX::TemporalAA(CommandList* pCommandList, RenderTarget** ppDsts, Texture** ppSrcs,
+	const DescriptorTable& uavTable, const DescriptorTable& srvTable, uint8_t numUAVs, uint8_t numSRVs)
+{
+	// Set barriers
+	vector<ResourceBarrier> barriers(numUAVs + numSRVs);
+	auto numBarriers = 0u;
+	for (uint8_t i = 0; i < numUAVs; ++i)
+		numBarriers = ppDsts[i]->SetBarrier(barriers.data(), ResourceState::UNORDERED_ACCESS, numBarriers);
+	for (uint8_t i = 0; i < numSRVs; ++i)
+		numBarriers = ppSrcs[i]->SetBarrier(barriers.data(), ResourceState::NON_PIXEL_SHADER_RESOURCE, numBarriers);
+	pCommandList->Barrier(numBarriers, barriers.data());
+
+	// Set pipeline layout and descriptor tables
+	pCommandList->SetComputePipelineLayout(m_exPipelineLayouts[TEMPORAL_AA]);
+	pCommandList->SetComputeDescriptorTable(TEXTURES, srvTable);
+	pCommandList->SetComputeDescriptorTable(IMMUTABLE, m_cbvTables[CBV_IMMUTABLE]);
+	pCommandList->SetComputeDescriptorTable(2, uavTable);
+
+	// Set pipeline
+	pCommandList->SetPipelineState(m_exPipelines[TEMPORAL_AA]);
+
+	// Dispath
+	const auto width = static_cast<uint32_t>((*ppDsts)->GetWidth());
+	const auto height = (*ppDsts)->GetHeight();
+	pCommandList->Dispatch(XUSG_DIV_UP(width, 8), XUSG_DIV_UP(height, 8), 1);
+}
+
+DescriptorTable PostprocessX::CreateTemporalAASRVTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
+	const Descriptor& srvVelocity, const Descriptor& srvMasks, const Descriptor& srvMeta)
+{
+	const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+	const Descriptor descriptors[] = { srvCurrent, srvPrevious, srvVelocity, srvMasks, srvMeta, m_circleOfConf->GetSRVLevel(0) };
+	descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
+
+	return descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get());
+}
+
 bool PostprocessX::createPipelineLayouts()
 {
 	const auto pSampler = m_descriptorTableLib->GetSampler(LINEAR_CLAMP);
@@ -176,6 +213,62 @@ bool PostprocessX::createPipelineLayouts()
 			PipelineLayoutFlag::NONE, L"DoFDownLayout"), false);
 	}
 
+	// Temporal AA
+	{
+		auto cbImmutable = 0u;
+		auto txImage = 0u;
+		auto txHistory = txImage + 1;
+		auto txVelocity = txHistory + 1;
+		auto txMasks = txVelocity + 1;
+		auto txHistMeta = txMasks + 1;
+		auto txCoc = txHistMeta + 1;
+		auto smpLinearClamp = 0u;
+
+		// Load shader
+		XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_TEMPORAL_AA, L"CSTemporalAA.cso"), false);
+
+		// Get pixel shader slots
+		auto reflector = m_shaderLib->GetReflector(Shader::Stage::CS, TEMPORAL_AA);
+		if (reflector && reflector->IsValid())
+		{
+			// Get constant buffer slot
+			cbImmutable = reflector->GetResourceBindingPointByName("cbImmutable", cbImmutable);
+
+			// Get shader resource slots
+			txImage = reflector->GetResourceBindingPointByName("g_txImage", txImage);
+			txHistory = reflector->GetResourceBindingPointByName("g_txHistory", txHistory);
+			txVelocity = reflector->GetResourceBindingPointByName("g_txVelocity", txVelocity);
+			txMasks = reflector->GetResourceBindingPointByName("g_txMask", txMasks);
+			txHistMeta = reflector->GetResourceBindingPointByName("g_txHistMeta", txHistMeta);
+
+			// Get sampler slot
+			smpLinearClamp = reflector->GetResourceBindingPointByName("g_smpLinear", smpLinearClamp);
+		}
+
+		// Pipeline layout utility
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+
+		// Constant buffers
+		utilPipelineLayout->SetRange(IMMUTABLE, DescriptorType::CBV, 1, cbImmutable,
+			0, DescriptorFlag::DATA_STATIC);
+
+		// Textures
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txImage);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txHistory);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txVelocity);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txMasks);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txHistMeta);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txCoc);
+
+		utilPipelineLayout->SetRange(2, DescriptorType::UAV, 2, 0);
+
+		// Sampler
+		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, smpLinearClamp);
+
+		XUSG_X_RETURN(m_exPipelineLayouts[TEMPORAL_AA], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
+			PipelineLayoutFlag::NONE, L"TemporalAACLayout"), false);
+	}
+
 	return true;
 }
 
@@ -203,6 +296,14 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 		state->SetPipelineLayout(m_exPipelineLayouts[BILATERAL_DOF_UP]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_DOF_UP));
 		XUSG_X_RETURN(m_exPipelines[BILATERAL_DOF_UP], state->GetPipeline(m_computePipelineLib.get(), L"DoFDown"), false);
+	}
+
+	// Temporal AA
+	{
+		const auto state = Compute::State::MakeUnique(m_api);
+		state->SetPipelineLayout(m_exPipelineLayouts[TEMPORAL_AA]);
+		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_TEMPORAL_AA));
+		XUSG_X_RETURN(m_exPipelines[TEMPORAL_AA], state->GetPipeline(m_computePipelineLib.get(), L"TemporalAAC"), false);
 	}
 
 	return true;

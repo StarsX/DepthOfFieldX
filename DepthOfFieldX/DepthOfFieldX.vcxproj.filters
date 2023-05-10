@@ -51,9 +51,6 @@
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Import\d3dx12.h">
-      <Filter>Import\Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Import\DXFramework.h">
       <Filter>Import\Header Files</Filter>
     </ClInclude>
@@ -108,6 +105,9 @@
     <ClInclude Include="PostprocessX.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Import\stb_image_write.h">
+      <Filter>Import\Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp">
@@ -130,6 +130,9 @@
     </ClCompile>
     <ClCompile Include="PostprocessX.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Import\stb_image_write.cpp">
+      <Filter>Import\Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -158,6 +161,9 @@
       <Filter>Shaders</Filter>
     </FxCompile>
     <FxCompile Include="Shaders\CSCircleOfConf.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\CSTemporalAA.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
   </ItemGroup>

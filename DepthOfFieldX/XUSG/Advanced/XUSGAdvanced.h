@@ -88,6 +88,7 @@ namespace XUSG
 		SUBSET_ALPHA = 0x2,
 		SUBSET_ALPHA_TEST = 0x4,
 		SUBSET_FULL = SUBSET_OPAQUE | SUBSET_ALPHA | SUBSET_ALPHA_TEST,
+		SUBSET_HAS_ALPHA = SUBSET_ALPHA | SUBSET_ALPHA_TEST,
 
 		NUM_SUBSET_TYPE = 2
 	};
@@ -402,7 +403,7 @@ namespace XUSG
 #endif
 		virtual void SetPipelineLayout(const CommandList* pCommandList, PipelineLayoutIndex layout) = 0;
 		virtual void SetPipeline(const CommandList* pCommandList, PipelineIndex pipeline) = 0;
-		virtual void SetPipeline(const CommandList* pCommandList, SubsetFlags subsetFlags, PipelineLayoutIndex layout) = 0;
+		virtual void SetPipeline(const CommandList* pCommandList, SubsetFlags subsetFlag, PipelineLayoutIndex layout) = 0;
 		virtual void Render(const CommandList* pCommandList, SubsetFlags subsetFlags, uint8_t matrixTableIndex,
 			PipelineLayoutIndex layout = NUM_PIPELINE_LAYOUT, const DescriptorTable* pCbvPerFrameTable = nullptr,
 			uint32_t numInstances = 1) = 0;
@@ -476,7 +477,7 @@ namespace XUSG
 		virtual void Skinning(CommandList* pCommandList, uint32_t& numBarriers,
 			ResourceBarrier* pBarriers, bool reset = false) = 0;
 		virtual void RenderTransformed(const CommandList* pCommandList, PipelineLayoutIndex layout,
-			SubsetFlags subsetFlags = SUBSET_FULL, const DescriptorTable* pCbvPerFrameTable = nullptr,
+			SubsetFlags subsetMask = SUBSET_FULL, const DescriptorTable* pCbvPerFrameTable = nullptr,
 			uint32_t numInstances = 1) = 0;
 
 		virtual const DirectX::XMFLOAT4& GetPosition() const = 0;
@@ -526,7 +527,7 @@ namespace XUSG
 
 		virtual void Update(uint8_t frameIndex, DirectX::FXMMATRIX* pWorld = nullptr, bool isTemporal = true) = 0;
 		virtual void Render(const CommandList* pCommandList, uint32_t mesh, PipelineLayoutIndex layout,
-			SubsetFlags subsetFlags = SUBSET_FULL, const DescriptorTable* pCbvPerFrameTable = nullptr,
+			SubsetFlags subsetMask = SUBSET_FULL, const DescriptorTable* pCbvPerFrameTable = nullptr,
 			uint32_t numInstances = 1) = 0;
 
 		virtual const SDKMesh::sptr& GetMesh() const = 0;
@@ -559,7 +560,7 @@ namespace XUSG
 		//OctNode(uint32_t numModels, const StaticModel::sptr* pModels, const DirectX::XMFLOAT3& eyePt);
 		virtual ~OctNode() {};
 
-		virtual void CreateTree(SubsetFlags subsetFlags) = 0;
+		virtual void CreateTree(SubsetFlags subsetFlag) = 0;
 		virtual void Init(const DirectX::XMFLOAT3& center, float diameter) = 0;
 		virtual void Sort(std::vector<DirectX::XMUINT2>& meshIDQueue,
 			DirectX::CXMMATRIX viewProj, bool isNearToFar, bool isAllVisible = false) const = 0;
@@ -737,9 +738,8 @@ namespace XUSG
 		virtual bool CreateResources(CommandList* pCommandList, std::vector<Resource::uptr>& uploaders) = 0;
 
 		virtual void Update(uint8_t frameIndex, double time, float timeStep) = 0;
-		virtual void Update(uint8_t frameIndex, double time, float timeStep,
-			DirectX::CXMMATRIX view, DirectX::CXMMATRIX proj,
-			DirectX::CXMVECTOR eyePt) = 0;
+		virtual void Update(uint8_t frameIndex, double time, float timeStep, DirectX::CXMMATRIX view,
+			DirectX::CXMMATRIX proj, DirectX::CXMVECTOR eyePt, bool enableJitter = true) = 0;
 		virtual void Render(CommandList* pCommandList) = 0;
 		virtual void SkinCharacters(CommandList* pCommandList, uint32_t& numBarriers,
 			ResourceBarrier* pBarriers, bool reset = false) = 0;
@@ -753,7 +753,7 @@ namespace XUSG
 			ResourceBarrier* pBarriers, const BarrierFlag barrierFlags[NUM_GB_RTV]) = 0;
 		virtual void RenderGBuffers(CommandList* pCommandList, uint32_t& numBarriers,
 			ResourceBarrier* pBarriers, const BarrierFlag barrierFlags[NUM_GB_RTV]) = 0;
-		virtual void SetViewProjMatrix(DirectX::CXMMATRIX view, DirectX::CXMMATRIX proj) = 0;
+		virtual void SetViewProjMatrix(DirectX::CXMMATRIX view, DirectX::CXMMATRIX proj, bool enableJitter) = 0;
 		virtual void SetEyePoint(DirectX::CXMVECTOR eyePt) = 0;
 		virtual void SetFocusAndDistance(DirectX::CXMVECTOR focus_dist) = 0;
 		virtual void SetRenderTarget(const RenderTarget::sptr& sceneColor, const DepthStencil::sptr& sceneDepth,

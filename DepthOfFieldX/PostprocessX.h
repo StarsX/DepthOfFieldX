@@ -15,6 +15,7 @@ public:
 		CIRCLE_OF_CONF,
 		BILATERAL_DOF_DOWN,
 		BILATERAL_DOF_UP,
+		TEMPORAL_AA,
 
 		NUM_EX_PIPELINE
 	};
@@ -33,6 +34,11 @@ public:
 
 	void SetTime(double time);
 	void DepthOfField(XUSG::CommandList* pCommandList, XUSG::Texture* pSource);
+	void TemporalAA(XUSG::CommandList* pCommandList, XUSG::RenderTarget** ppDsts, XUSG::Texture** ppSrcs,
+		const XUSG::DescriptorTable& uavTable, const XUSG::DescriptorTable& srvTable, uint8_t numUAVs, uint8_t numSRVs);
+
+	XUSG::DescriptorTable CreateTemporalAASRVTable(const XUSG::Descriptor& srvCurrent, const XUSG::Descriptor& srvPrevious,
+		const XUSG::Descriptor& srvVelocity, const XUSG::Descriptor& srvMasks, const XUSG::Descriptor& srvMeta);
 
 protected:
 	// Compute shaders
@@ -40,7 +46,8 @@ protected:
 	{
 		CS_COC_GEN = XUSG::CS_LUM_ADAPT + 1,
 		CS_DOF_DOWN,
-		CS_DOF_UP
+		CS_DOF_UP,
+		CS_TEMPORAL_AA
 	};
 
 	bool createPipelineLayouts();
@@ -60,6 +67,7 @@ protected:
 
 	XUSG::DescriptorTable		m_srvDepthTable;
 	XUSG::DescriptorTable		m_uavCoCTable;
+	//XUSG::DescriptorTable		m_uavTAATable;
 	std::vector<XUSG::DescriptorTable> m_uavDoFDownTables;
 	std::vector<XUSG::DescriptorTable> m_uavDoFUpTables;
 	std::vector<XUSG::DescriptorTable> m_srvDoFTables;
