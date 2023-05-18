@@ -61,9 +61,20 @@ private:
 	enum SrvTableIndex : uint8_t
 	{
 		SRV_AA_INPUT,
-		SRV_ANTIALIASED = SRV_AA_INPUT + 2,
+		SRV_AA_INPUT1,
+		SRV_ANTIALIASED,
+		SRV_ANTIALIASED1,
 
-		NUM_SRV = SRV_ANTIALIASED + 2
+		NUM_SRV
+	};
+
+	enum UavTableIndex : uint8_t
+	{
+		UAV_AA_OUTPUT,
+		UAV_AA_OUTPUT1,
+		UAV_DOF_OUTPUT,
+
+		NUM_UAV
 	};
 
 	XUSG::com_ptr<IDXGIFactory5> m_factory;
@@ -95,7 +106,7 @@ private:
 	XUSG::RenderTarget::sptr	m_sceneMasks;
 	XUSG::DepthStencil::sptr	m_sceneDepth;
 	XUSG::DescriptorTable		m_srvTables[NUM_SRV];
-	XUSG::DescriptorTable		m_uavTables[2];
+	XUSG::DescriptorTable		m_uavTables[NUM_UAV];
 	XMFLOAT4X4	m_proj;
 	XMFLOAT4X4	m_view;
 	XMFLOAT3	m_eyePt;

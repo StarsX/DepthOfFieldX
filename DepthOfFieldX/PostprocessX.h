@@ -16,6 +16,8 @@ public:
 		BILATERAL_DOF_DOWN,
 		BILATERAL_DOF_UP,
 		TEMPORAL_AA,
+		TM_BLIT,
+		ITM_BLIT,
 
 		NUM_EX_PIPELINE
 	};
@@ -30,15 +32,16 @@ public:
 		const XUSG::DescriptorTableLib::sptr& descriptorTableLib,
 		XUSG::Format hdrFormat, XUSG::Format ldrFormat);
 	bool ChangeWindowSize(const XUSG::Device* pDevice, const XUSG::Texture* pReference);
-	bool SetDepth(const XUSG::DepthStencil* pDepth);
+	bool SetDepth(XUSG::DepthStencil* pDepth);
 
 	void SetTime(double time);
-	void DepthOfField(XUSG::CommandList* pCommandList, XUSG::Texture* pSource);
+	void DepthOfField(XUSG::CommandList* pCommandList, XUSG::Texture* pSceneColor,
+		const XUSG::DescriptorTable& uavTable, const XUSG::DescriptorTable& srvTable);
 	void TemporalAA(XUSG::CommandList* pCommandList, XUSG::RenderTarget** ppDsts, XUSG::Texture** ppSrcs,
 		const XUSG::DescriptorTable& uavTable, const XUSG::DescriptorTable& srvTable, uint8_t numUAVs, uint8_t numSRVs);
 
 	XUSG::DescriptorTable CreateTemporalAASRVTable(const XUSG::Descriptor& srvCurrent, const XUSG::Descriptor& srvPrevious,
-		const XUSG::Descriptor& srvVelocity, const XUSG::Descriptor& srvMasks, const XUSG::Descriptor& srvMeta);
+		const XUSG::Texture* pVelocity, const XUSG::Descriptor& srvMasks, const XUSG::Descriptor& srvMeta);
 
 protected:
 	// Compute shaders
@@ -47,7 +50,9 @@ protected:
 		CS_COC_GEN = XUSG::CS_LUM_ADAPT + 1,
 		CS_DOF_DOWN,
 		CS_DOF_UP,
-		CS_TEMPORAL_AA
+		CS_TEMPORAL_AA,
+		CS_TM_BLIT,
+		CS_ITM_BLIT
 	};
 
 	bool createPipelineLayouts();
@@ -57,6 +62,8 @@ protected:
 	void circleOfConfusion(XUSG::CommandList* pCommandList);
 	void bilateralDown(XUSG::CommandList* pCommandList, XUSG::Texture* pSource);
 	void bilateralUp(XUSG::CommandList* pCommandList);
+	void toneMappedBlit(XUSG::CommandList* pCommandList, XUSG::Texture* pDst, XUSG::Texture* pSrc,
+		const XUSG::DescriptorTable& srvTable, const XUSG::DescriptorTable& uavTable, bool inverse);
 
 	XUSG::PipelineLayout		m_exPipelineLayouts[NUM_EX_PIPELINE];
 	XUSG::Pipeline				m_exPipelines[NUM_EX_PIPELINE];
@@ -72,6 +79,9 @@ protected:
 	std::vector<XUSG::DescriptorTable> m_uavDoFUpTables;
 	std::vector<XUSG::DescriptorTable> m_srvDoFTables;
 	std::vector<XUSG::DescriptorTable> m_srvDoFUpTables;
+
+	XUSG::DepthStencil* m_pDepth;
+	XUSG::Texture* m_pVelocity;
 
 	double m_time = 0.0;
 };

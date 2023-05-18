@@ -239,7 +239,7 @@ void DepthOfFieldX::CreateResources()
 
 	// Create HDR RT
 	m_sceneColor = RenderTarget::MakeShared(Api);
-	XUSG_N_RETURN(m_sceneColor->Create(m_device.get(), m_width, m_height, FormatHDR, 1, ResourceFlag::NONE,
+	XUSG_N_RETURN(m_sceneColor->Create(m_device.get(), m_width, m_height, FormatHDR, 1, ResourceFlag::ALLOW_UNORDERED_ACCESS,
 		1, 1, nullptr, false, MemoryFlag::NONE, L"SceneColor"), ThrowIfFailed(E_FAIL));
 
 	// Create Mask RT
@@ -278,7 +278,7 @@ void DepthOfFieldX::ResizeAssets()
 		for (auto n = 0u; n < 2; ++n)
 		{
 			XUSG_X_RETURN(m_srvTables[SRV_AA_INPUT + n], m_postprocess->CreateTemporalAASRVTable(
-				m_sceneColor->GetSRV(), m_temporalColors[!n]->GetSRV(), m_scene->GetGBuffer(Scene::MOTION_IDX)->GetSRV(),
+				m_sceneColor->GetSRV(), m_temporalColors[!n]->GetSRV(), m_scene->GetGBuffer(Scene::MOTION_IDX),
 				m_sceneMasks->GetSRV(), m_metaBuffers[!n]->GetSRV()), ThrowIfFailed(E_FAIL));
 
 			const auto srvTable = Util::DescriptorTable::MakeUnique(Api);
@@ -289,7 +289,14 @@ void DepthOfFieldX::ResizeAssets()
 			const auto uavTable = Util::DescriptorTable::MakeUnique(Api);
 			const Descriptor uavs[] = { m_temporalColors[n]->GetUAV(), m_metaBuffers[n]->GetUAV() };
 			uavTable->SetDescriptors(0, static_cast<uint32_t>(size(uavs)), uavs);
-			XUSG_X_RETURN(m_uavTables[n], uavTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
+			XUSG_X_RETURN(m_uavTables[UAV_AA_OUTPUT + n], uavTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
+		}
+
+		{
+			const auto uavTable = Util::DescriptorTable::MakeUnique(Api);
+			const Descriptor uavs[] = { m_sceneColor->GetUAV() };
+			uavTable->SetDescriptors(0, static_cast<uint32_t>(size(uavs)), uavs);
+			XUSG_X_RETURN(m_uavTables[UAV_DOF_OUTPUT], uavTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
 		}
 
 		XUSG_N_RETURN(m_postprocess->SetDepth(m_sceneDepth.get()), ThrowIfFailed(E_FAIL));
@@ -335,7 +342,7 @@ void DepthOfFieldX::OnUpdate()
 	const auto eyePt = XMLoadFloat3(&m_eyePt);
 	const auto view = XMLoadFloat4x4(&m_view);
 	const auto proj = XMLoadFloat4x4(&m_proj);
-	m_scene->Update(m_frameIndex, time, timeStep, view, proj, eyePt);
+	m_scene->Update(m_frameIndex, time, timeStep, view, proj, eyePt, true);
 	m_postprocess->Update(m_scene->GetCBVTable(Scene::CBV_IMMUTABLE),
 		m_scene->GetCBVTable(Scene::CBV_PER_FRAME_PS + m_frameIndex), timeStep);
 	m_postprocess->SetTime(time);
@@ -556,15 +563,15 @@ void DepthOfFieldX::PopulateCommandList()
 	//pCommandList->ClearRenderTargetView(m_renderTargets[m_frameIndex]->GetRTV(), clearColor);
 	m_scene->Render(pCommandList);
 
-	m_postprocess->DepthOfField(pCommandList, m_sceneColor.get());
+	m_postprocess->DepthOfField(pCommandList, m_sceneColor.get(), m_uavTables[UAV_DOF_OUTPUT], m_srvTables[SRV_AA_INPUT]);
 
 	// Temporal AA
 	RenderTarget* ppDsts[] = { m_temporalColors[m_frameParity].get(), m_metaBuffers[m_frameParity].get() };
 	Texture* ppSrcs[] = { m_sceneColor.get(), m_sceneMasks.get(), m_metaBuffers[!m_frameParity].get() };
 	//m_postprocess->Antialias(pCommandList, ppDsts, ppSrcs, m_srvTables[SRV_AA_INPUT + m_frameParity],
 		//static_cast<uint8_t>(size(ppDsts)), static_cast<uint8_t>(size(ppSrcs)));
-	m_postprocess->TemporalAA(pCommandList, ppDsts, ppSrcs, m_uavTables[m_frameParity], m_srvTables[SRV_AA_INPUT + m_frameParity],
-		static_cast<uint8_t>(size(ppDsts)), static_cast<uint8_t>(size(ppSrcs)));
+	m_postprocess->TemporalAA(pCommandList, ppDsts, ppSrcs, m_uavTables[UAV_AA_OUTPUT + m_frameParity],
+		m_srvTables[SRV_AA_INPUT + m_frameParity], static_cast<uint8_t>(size(ppDsts)), static_cast<uint8_t>(size(ppSrcs)));
 
 	// Postprocessing
 	m_postprocess->Render(pCommandList, pRenderTarget, m_temporalColors[m_frameParity].get(),

@@ -11,6 +11,11 @@ float CoCWeight(float coc, float radius)
 	//return saturate((coc - radius + 2.0) / 2.0);
 }
 
+int CoCRadius(float coc)
+{
+	return max((abs(coc) - 1.0) * 3.0 + 1.0, 0.0);
+}
+
 float GaussianSigmaFromRadius(int radius)
 {
 	return (radius + 1) / 3.0;

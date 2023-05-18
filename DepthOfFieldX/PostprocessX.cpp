@@ -5,6 +5,8 @@
 //#include "Advanced/XUSGAdvanced.h"
 #include "PostprocessX.h"
 
+//#define _TONE_MAPPED_BLIT_
+
 using namespace std;
 using namespace DirectX;
 using namespace XUSG;
@@ -68,8 +70,9 @@ bool PostprocessX::ChangeWindowSize(const Device* pDevice, const Texture* pRefer
 	return createDescriptorTables();
 }
 
-bool PostprocessX::SetDepth(const DepthStencil* pDepth)
+bool PostprocessX::SetDepth(DepthStencil* pDepth)
 {
+	m_pDepth = pDepth;
 	const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 	descriptorTable->SetDescriptors(0, 1, &pDepth->GetSRV());
 	XUSG_X_RETURN(m_srvDepthTable, descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
@@ -82,43 +85,52 @@ void PostprocessX::SetTime(double time)
 	m_time = time;
 }
 
-void PostprocessX::DepthOfField(XUSG::CommandList* pCommandList, XUSG::Texture* pSource)
+void PostprocessX::DepthOfField(XUSG::CommandList* pCommandList, Texture* pSceneColor,
+	const DescriptorTable& uavTable, const DescriptorTable& srvTable)
 {
+#ifdef _TONE_MAPPED_BLIT_
+	toneMappedBlit(pCommandList, m_sourceMip.get(), pSceneColor, m_uavDoFDownTables[0], srvTable, false);
+#else
 	ResourceBarrier barriers[2];
 	auto numBarriers = m_sourceMip->SetBarrier(barriers, ResourceState::COPY_DEST);
-	numBarriers = pSource->SetBarrier(barriers, ResourceState::COPY_SOURCE | ResourceState::PIXEL_SHADER_RESOURCE, numBarriers);
+	numBarriers = pSceneColor->SetBarrier(barriers, ResourceState::COPY_SOURCE, numBarriers);
 	pCommandList->Barrier(numBarriers, barriers);
 
 	{
 		TextureCopyLocation dst(m_sourceMip.get(), 0);
-		TextureCopyLocation src(pSource, 0);
+		TextureCopyLocation src(pSceneColor, 0);
 		pCommandList->CopyTextureRegion(dst, 0, 0, 0, src);
 	}
 
 	numBarriers = m_sourceMip->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS);
 	pCommandList->Barrier(numBarriers, barriers);
+#endif
 
 	circleOfConfusion(pCommandList);
-	bilateralDown(pCommandList, pSource);
+	bilateralDown(pCommandList, pSceneColor);
 	bilateralUp(pCommandList);
 
+#ifdef _TONE_MAPPED_BLIT_
+	toneMappedBlit(pCommandList, pSceneColor, m_filtered.get(), uavTable, m_srvDoFUpTables[0], true);
+#else
 	numBarriers = m_filtered->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE | ResourceState::COPY_SOURCE, 0, 0);
-	numBarriers = pSource->SetBarrier(barriers, ResourceState::COPY_DEST, numBarriers);
+	numBarriers = pSceneColor->SetBarrier(barriers, ResourceState::COPY_DEST, numBarriers);
 	pCommandList->Barrier(numBarriers, barriers);
 
 	{
-		TextureCopyLocation dst(pSource, 0);
+		TextureCopyLocation dst(pSceneColor, 0);
 		TextureCopyLocation src(m_filtered.get(), 0);
 		pCommandList->CopyTextureRegion(dst, 0, 0, 0, src);
 	}
+#endif
 }
 
 void PostprocessX::TemporalAA(CommandList* pCommandList, RenderTarget** ppDsts, Texture** ppSrcs,
 	const DescriptorTable& uavTable, const DescriptorTable& srvTable, uint8_t numUAVs, uint8_t numSRVs)
 {
 	// Set barriers
-	vector<ResourceBarrier> barriers(numUAVs + numSRVs);
-	auto numBarriers = 0u;
+	vector<ResourceBarrier> barriers(numUAVs + numSRVs + 1);
+	auto numBarriers = m_pVelocity->SetBarrier(barriers.data(), ResourceState::NON_PIXEL_SHADER_RESOURCE);
 	for (uint8_t i = 0; i < numUAVs; ++i)
 		numBarriers = ppDsts[i]->SetBarrier(barriers.data(), ResourceState::UNORDERED_ACCESS, numBarriers);
 	for (uint8_t i = 0; i < numSRVs; ++i)
@@ -138,13 +150,17 @@ void PostprocessX::TemporalAA(CommandList* pCommandList, RenderTarget** ppDsts, 
 	const auto width = static_cast<uint32_t>((*ppDsts)->GetWidth());
 	const auto height = (*ppDsts)->GetHeight();
 	pCommandList->Dispatch(XUSG_DIV_UP(width, 8), XUSG_DIV_UP(height, 8), 1);
+
+	numBarriers = ppDsts[0]->SetBarrier(barriers.data(), ResourceState::SHADER_RESOURCE);
+	pCommandList->Barrier(numBarriers, barriers.data());
 }
 
 DescriptorTable PostprocessX::CreateTemporalAASRVTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
-	const Descriptor& srvVelocity, const Descriptor& srvMasks, const Descriptor& srvMeta)
+	const Texture* pVelocity, const Descriptor& srvMasks, const Descriptor& srvMeta)
 {
+	m_pVelocity = const_cast<Texture*>(pVelocity);
 	const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-	const Descriptor descriptors[] = { srvCurrent, srvPrevious, srvVelocity, srvMasks, srvMeta, m_circleOfConf->GetSRVLevel(0) };
+	const Descriptor descriptors[] = { srvCurrent, srvPrevious, pVelocity->GetSRV(), srvMasks, srvMeta, m_circleOfConf->GetSRVLevel(0) };
 	descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 
 	return descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get());
@@ -201,10 +217,12 @@ bool PostprocessX::createPipelineLayouts()
 		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 1, 0);
 		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 2, 0);
 		utilPipelineLayout->SetRange(2, DescriptorType::SRV, 2, 2);
-		utilPipelineLayout->SetConstants(3, 1, 0);
+		utilPipelineLayout->SetRange(3, DescriptorType::SRV, 1, 4);
+		utilPipelineLayout->SetConstants(4, 1, 0);
 		utilPipelineLayout->SetShaderStage(0, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(2, Shader::Stage::CS);
+		utilPipelineLayout->SetShaderStage(3, Shader::Stage::CS);
 
 		// Samplers
 		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, 0);
@@ -269,6 +287,26 @@ bool PostprocessX::createPipelineLayouts()
 			PipelineLayoutFlag::NONE, L"TemporalAACLayout"), false);
 	}
 
+	// Tone-mapped blit
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_TM_BLIT, L"CSTMBlit.cso"), false);
+	{
+		// Pipeline layout utility
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+
+		// Texture
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, 0);
+		utilPipelineLayout->SetRange(1, DescriptorType::UAV, 1, 0);
+		utilPipelineLayout->SetShaderStage(TEXTURES, Shader::Stage::CS);
+		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
+
+		XUSG_X_RETURN(m_exPipelineLayouts[TM_BLIT], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
+			PipelineLayoutFlag::NONE, L"ToneMappedBlitLayout"), false);
+	}
+
+	// Inverse tone-mapped blit
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_ITM_BLIT, L"CSITMBlit.cso"), false);
+	m_exPipelineLayouts[ITM_BLIT] = m_exPipelineLayouts[TM_BLIT];
+
 	return true;
 }
 
@@ -304,6 +342,22 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 		state->SetPipelineLayout(m_exPipelineLayouts[TEMPORAL_AA]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_TEMPORAL_AA));
 		XUSG_X_RETURN(m_exPipelines[TEMPORAL_AA], state->GetPipeline(m_computePipelineLib.get(), L"TemporalAAC"), false);
+	}
+
+	// Tone-mapped blit
+	{
+		const auto state = Compute::State::MakeUnique(m_api);
+		state->SetPipelineLayout(m_exPipelineLayouts[TM_BLIT]);
+		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_TM_BLIT));
+		XUSG_X_RETURN(m_exPipelines[TM_BLIT], state->GetPipeline(m_computePipelineLib.get(), L"ToneMappedBlit"), false);
+	}
+
+	// Inverse tone-mapped blit
+	{
+		const auto state = Compute::State::MakeUnique(m_api);
+		state->SetPipelineLayout(m_exPipelineLayouts[ITM_BLIT]);
+		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_ITM_BLIT));
+		XUSG_X_RETURN(m_exPipelines[ITM_BLIT], state->GetPipeline(m_computePipelineLib.get(), L"InverseToneMappedBlit"), false);
 	}
 
 	return true;
@@ -397,9 +451,10 @@ void PostprocessX::circleOfConfusion(CommandList* pCommandList)
 		camCoCParams.CocToImageSpace = height / imageHeight;
 	}
 
-	ResourceBarrier barrier;
-	const auto numBarriers = m_circleOfConf->SetBarrier(&barrier, ResourceState::UNORDERED_ACCESS);
-	pCommandList->Barrier(numBarriers, &barrier);
+	ResourceBarrier barriers[2];
+	auto numBarriers = m_circleOfConf->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS);
+	numBarriers = m_pDepth->SetBarrier(barriers, ResourceState::SHADER_RESOURCE, numBarriers);
+	pCommandList->Barrier(numBarriers, barriers);
 
 	pCommandList->SetComputePipelineLayout(m_exPipelineLayouts[CIRCLE_OF_CONF]);
 	pCommandList->SetComputeDescriptorTable(0, m_uavCoCTable);
@@ -465,7 +520,8 @@ void PostprocessX::bilateralUp(CommandList* pCommandList)
 		pCommandList->SetComputeDescriptorTable(0, m_uavDoFUpTables[level]);
 		pCommandList->SetComputeDescriptorTable(1, m_srvDoFUpTables[c]);
 		pCommandList->SetComputeDescriptorTable(2, m_srvDoFTables[level]);
-		pCommandList->SetCompute32BitConstant(3, level);
+		pCommandList->SetComputeDescriptorTable(3, m_srvDoFTables[c]);
+		pCommandList->SetCompute32BitConstant(4, level);
 
 		// Dispatch grid
 		const auto threadsX = (max)(width >> level, 1u);
@@ -473,4 +529,24 @@ void PostprocessX::bilateralUp(CommandList* pCommandList)
 		pCommandList->Dispatch(XUSG_DIV_UP(threadsX, 8), XUSG_DIV_UP(threadsY, 8), 1);
 		numBarriers = 0;
 	}
+}
+
+void PostprocessX::toneMappedBlit(CommandList* pCommandList, Texture* pDst, Texture* pSrc,
+	const DescriptorTable& uavTable, const DescriptorTable& srvTable, bool inverse)
+{
+	ResourceBarrier barriers[2];
+	auto numBarriers = pDst->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS);
+	numBarriers = pSrc->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE, numBarriers, 0);
+	pCommandList->Barrier(numBarriers, barriers);
+
+	const auto pipeIdx = inverse ? ITM_BLIT : TM_BLIT;
+	pCommandList->SetComputePipelineLayout(m_exPipelineLayouts[pipeIdx]);
+	pCommandList->SetPipelineState(m_exPipelines[pipeIdx]);
+
+	pCommandList->SetComputeDescriptorTable(TEXTURES, srvTable);
+	pCommandList->SetComputeDescriptorTable(1, uavTable);
+
+	const auto width = static_cast<uint32_t>(pDst->GetWidth());
+	const auto height = pDst->GetHeight();
+	pCommandList->Dispatch(XUSG_DIV_UP(width, 8), XUSG_DIV_UP(height, 8), 1);
 }

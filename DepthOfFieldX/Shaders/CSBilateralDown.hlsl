@@ -42,7 +42,7 @@ float2 BilinearDomainLoc(Texture2D<float3> tx, float2 uv)
 //--------------------------------------------------------------------------------------
 float CalcMipLevelRadius(uint level, float len = 0.5)
 {
-	return pow(2.0, level) * len * sqrt(2.0);
+	return ((1u << level) * len - 0.5) * sqrt(2.0);
 }
 
 //--------------------------------------------------------------------------------------
@@ -92,7 +92,8 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	for (uint i = 0; i < 4; ++i)
 	{
 		srcs[i].w = abs(srcs[i].w);
-		float w = Gaussian(r, int(srcs[i].w * 3.0));
+		const int br = CoCRadius(srcs[i].w);
+		float w = Gaussian(r, br);
 		w *= wb[i];
 
 		dst += srcs[i] * w;
