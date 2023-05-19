@@ -180,6 +180,7 @@ DescriptorTable PostprocessX::CreateTemporalAASRVTable(const Descriptor& srvCurr
 
 bool PostprocessX::createPipelineLayouts()
 {
+	assert(BASIS_KERNEL_SIZE == 2 || BASIS_KERNEL_SIZE == 3);
 	const auto pSampler = m_descriptorTableLib->GetSampler(LINEAR_CLAMP);
 
 	// CoC generation
@@ -200,7 +201,7 @@ bool PostprocessX::createPipelineLayouts()
 	}
 
 	// DoF down sampling
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_DOWN, L"CSBilateralDown.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_DOWN, BASIS_KERNEL_SIZE == 2 ? L"CSBilateralDown.cso" : L"CSBilateralDown3x3.cso"), false);
 	{
 		// Pipeline layout utility
 		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
@@ -220,7 +221,7 @@ bool PostprocessX::createPipelineLayouts()
 	}
 
 	// DoF up sampling
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_UP, L"CSBilateralUp.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_UP, BASIS_KERNEL_SIZE == 2 ? L"CSBilateralUp.cso" : L"CSBilateralUp3x3.cso"), false);
 	{
 		// Pipeline layout utility
 		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);

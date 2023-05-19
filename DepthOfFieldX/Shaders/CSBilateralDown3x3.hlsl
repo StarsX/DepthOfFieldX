@@ -37,12 +37,16 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	const float r = CalcMipLevelRadius3x3(g_level);
 
 	// Down sampling with 3x3 bilateral filtering
-	{
-		float4 dst = 0.0;
-		float ws = 0.0;
+	float4 dst = 0.0;
+	float ws = 0.0;
 
+	uint i = 0;
+
+	[unroll]
+	for (int y = -1; y <= 1; ++y)
+	{
 		[unroll]
-		for (uint i = 0; i < 9; ++i)
+		for (int x = -1; x <= 1; ++x)
 		{
 			srcs[i].w = abs(cocs[i].x);
 			const int br = CoCRadius(srcs[i].w);
@@ -50,15 +54,16 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 			dst += srcs[i] * w;
 			ws += w;
+			++i;
 		}
-
-		if (ws > 0.0)
-		{
-			dst /= ws;
-
-			g_rwDst[DTid] = dst.xyz;
-			g_rwCoC[DTid] = dst.w;
-		}
-		else g_rwCoC[DTid] = 0.0;
 	}
+
+	if (ws > 0.0)
+	{
+		dst /= ws;
+
+		g_rwDst[DTid] = dst.xyz;
+		g_rwCoC[DTid] = dst.w;
+	}
+	else g_rwCoC[DTid] = 0.0;
 }

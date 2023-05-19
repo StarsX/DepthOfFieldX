@@ -95,12 +95,6 @@ float MipGaussianBlendWeightCoarse(uint level, int radius)
 [numthreads(8, 8, 1)]
 void main(uint2 DTid : SV_DispatchThreadID)
 {
-	//float2 imageSize;
-	//g_rwDst.GetDimensions(imageSize.x, imageSize.y);
-
-	//const float cocC = g_txCoC[DTid];
-	//const float2 uv = (DTid + 0.5) / imageSize;
-
 	float4 finers[9], finerCoCs[9], coarsers[9], coarserCoCs[9], coarserColors[9];
 	Fetch3x3(finers, g_txSrc, DTid);
 	Fetch3x3(finerCoCs, g_txCoC, DTid);
@@ -138,31 +132,38 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	src.xyz = src.w > 0.0 ? src.xyz / src.w : finers[4].xyz;
 #endif
 
-	[unroll]
-	for (i = 0; i < 9; ++i)
-	{
-		float w = wc;
-		const int br = CoCRadius(coarserCoCs[i].x);
-		float we = Gaussian(r, br);
+	i = 0;
 
-		// Apply the convolution weight with edge-stopping function
-		//const float3 coarser = lerp(src.xyz, coarserSrcs[i].xyz, we);
-		const float3 coarser = coarsers[i].xyz;
+	[unroll]
+	for (int y = -1; y <= 1; ++y)
+	{
+		[unroll]
+		for (int x = -1; x <= 1; ++x)
+		{
+			float w = wc;
+			const int br = CoCRadius(coarserCoCs[i].x);
+			float we = Gaussian(r, br);
+
+			// Apply the convolution weight with edge-stopping function
+			//const float3 coarser = lerp(src.xyz, coarserSrcs[i].xyz, we);
+			const float3 coarser = coarsers[i].xyz;
 
 #ifndef _WAVELET_
-		w /= 9.0;
-		wr -= w;
-		w *= we;
+			w /= 9.0;
+			wr -= w;
+			w *= we;
 
-		dst.xyz += coarser * w;
-		dst.w += w;
+			dst.xyz += coarser * w;
+			dst.w += w;
 #else
-		const float3 h = finers[4].xyz - coarserColors[i].xyz * we;
-		dst.xyz += (wf * h + coarser * we);
-		dst.w += (wf * (1.0 - we) + we);
+			const float3 h = finers[4].xyz - coarserColors[i].xyz * we;
+			dst.xyz += (wf * h + coarser * we);
+			dst.w += (wf * (1.0 - we) + we);
 #endif
-		//dst.xyz += coarser * we * wb[i];
-		//dst.w += we * wb[i];
+			//dst.xyz += coarser * we * wb[i];
+			//dst.w += we * wb[i];
+			++i;
+		}
 	}
 
 #ifndef _WAVELET_
