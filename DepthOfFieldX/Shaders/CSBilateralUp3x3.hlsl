@@ -23,11 +23,11 @@ cbuffer cbPerPass
 //--------------------------------------------------------------------------------------
 RWTexture2D<float3> g_rwDst;
 
-Texture2D g_txCoarser				: register (t0);
-Texture2D<float> g_txCoCCoarser		: register (t1);
-Texture2D g_txSrc					: register (t2);
-Texture2D g_txCoC					: register (t3);
-Texture2D<float3> g_txSrcCoarser	: register (t4);
+Texture2D g_txCoarser		: register (t0);
+Texture2D g_txCoCCoarser	: register (t1);
+Texture2D g_txSrc			: register (t2);
+Texture2D g_txCoC			: register (t3);
+Texture2D g_txSrcCoarser	: register (t4);
 
 //--------------------------------------------------------------------------------------
 // Texture sampler
@@ -47,7 +47,7 @@ float2 BilinearDomainLoc(Texture2D tx, float2 uv)
 
 float CalcMipLevelRadius(float2 domain, uint level)
 {
-	return CalcMipLevelRadius(level, length(domain));
+	return CalcMipLevelRadius3x3(level, length(domain));
 }
 
 //--------------------------------------------------------------------------------------
@@ -74,25 +74,19 @@ float MipGaussianBlendWeight(uint level, int radius)
 	return saturate(numerator / denorminator);
 }
 
-float4 GetSampleIn2x2From3x3(float4 samples3x3[9], uint2 i)
+float MipGaussianBlendWeightCoarse(uint level, int radius)
 {
-	// |0|1|2|
-	// |3|4|5|
-	// |6|7|8|
+	// Compute deviation
+	const float sigma = GaussianSigmaFromRadius(radius);
+	const float sigma_sq = sigma * sigma;
 
-	// |3|2|
-	// |0|1|
-	static const uint4x4 m =
-	{
-		uint4(6, 7, 4, 3),
-		uint4(7, 8, 5, 4),
-		uint4(4, 5, 2, 1),
-		uint4(3, 4, 1, 0)
-	};
+	// Gaussian-approximating Haar coefficients (weights of box filters)
+	const float d = pow(3.0, level);
+	const float r = 0.5 * d - 0.5;
+	const float r1 = 1.5 * d - 0.5;
 
-	const uint idx = m[i.x][i.y];
-
-	return samples3x3[idx];
+	//return exp(-0.5 * r1 * r1 / sigma_sq) / exp(-0.5 * r * r / sigma_sq);
+	return exp(0.5 * (r * r - r1 * r1) / sigma_sq);
 }
 
 //--------------------------------------------------------------------------------------
@@ -101,57 +95,26 @@ float4 GetSampleIn2x2From3x3(float4 samples3x3[9], uint2 i)
 [numthreads(8, 8, 1)]
 void main(uint2 DTid : SV_DispatchThreadID)
 {
-	float2 imageSize;
-	g_rwDst.GetDimensions(imageSize.x, imageSize.y);
+	//float2 imageSize;
+	//g_rwDst.GetDimensions(imageSize.x, imageSize.y);
 
-	const float2 uv = (DTid + 0.5) / imageSize;
+	//const float cocC = g_txCoC[DTid];
+	//const float2 uv = (DTid + 0.5) / imageSize;
 
-	const float4x4 gathers =
-	{
-		g_txCoarser.GatherRed(g_sampler, uv),
-		g_txCoarser.GatherGreen(g_sampler, uv),
-		g_txCoarser.GatherBlue(g_sampler, uv),
-		g_txCoCCoarser.GatherRed(g_sampler, uv)
-	};
-
-	const float3x4 gatherRGBs =
-	{
-		g_txSrcCoarser.GatherRed(g_sampler, uv),
-		g_txSrcCoarser.GatherGreen(g_sampler, uv),
-		g_txSrcCoarser.GatherBlue(g_sampler, uv)
-	};
-
-	float4 finers[9], finerCoCs[9];
+	float4 finers[9], finerCoCs[9], coarsers[9], coarserCoCs[9], coarserColors[9];
 	Fetch3x3(finers, g_txSrc, DTid);
 	Fetch3x3(finerCoCs, g_txCoC, DTid);
 
-	const float4x4 coarsers = transpose(gathers);
-	const float4x3 coarserColors = transpose(gatherRGBs);
-
-	const float2 domain = BilinearDomainLoc(g_txCoarser, uv);
-	const float2 domainInv = 1.0 - domain;
-	// |3|2|
-	// |0|1|
-	const float2 domains[] =
-	{
-		float2(domain.x, domainInv.y),
-		float2(domainInv.x, domainInv.y),
-		float2(domainInv.x, domain.y),
-		float2(domain.x, domain.y),
-	};
-	const float4 wb =
-	{
-		domainInv.x * domain.y,
-		domain.x * domain.y,
-		domain.x * domainInv.y,
-		domainInv.x * domainInv.y
-	};
+	const uint2 posCC = DTid / 3; // Center texcoord position of the coarser layer 
+	Fetch3x3(coarsers, g_txCoarser, posCC);
+	Fetch3x3(coarserCoCs, g_txCoCCoarser, posCC);
+	Fetch3x3(coarserColors, g_txSrcCoarser, posCC);
 
 	// Calculate Gaussian weight
 	const uint radius = CoCRadius(finerCoCs[4].x);
 	const float r = CalcMipLevelRadius(g_level + 1);
-	const float wf = MipGaussianBlendWeight(g_level, radius);
-	const float wc = 1.0 - wf;
+	const float wc = MipGaussianBlendWeightCoarse(g_level, radius);
+	const float wf = 1.0 - wc;
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
 	float4 dst = 0.0;
@@ -176,27 +139,27 @@ void main(uint2 DTid : SV_DispatchThreadID)
 #endif
 
 	[unroll]
-	for (i = 0; i < 4; ++i)
+	for (i = 0; i < 9; ++i)
 	{
-		//const float radius = CalcMipLevelRadius(domains[i], g_level + 1);
 		float w = wc;
-		const int br = CoCRadius(coarsers[i].w);
+		const int br = CoCRadius(coarserCoCs[i].x);
 		float we = Gaussian(r, br);
 
 		// Apply the convolution weight with edge-stopping function
-		const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
+		//const float3 coarser = lerp(src.xyz, coarserSrcs[i].xyz, we);
+		const float3 coarser = coarsers[i].xyz;
 
 #ifndef _WAVELET_
-		w *= wb[i];
+		w /= 9.0;
 		wr -= w;
 		w *= we;
 
 		dst.xyz += coarser * w;
 		dst.w += w;
 #else
-		const float3 h = finers[4].xyz - coarserColors[i] * we;
-		dst.xyz += (wf * h + coarser * we) * wb[i];
-		dst.w += (wf * (1.0 - we) + we) * wb[i];
+		const float3 h = finers[4].xyz - coarserColors[i].xyz * we;
+		dst.xyz += (wf * h + coarser * we);
+		dst.w += (wf * (1.0 - we) + we);
 #endif
 		//dst.xyz += coarser * we * wb[i];
 		//dst.w += we * wb[i];

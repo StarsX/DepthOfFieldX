@@ -34,3 +34,37 @@ float Gaussian(float r, int radius)
 
 	return Gaussian(r, sigma);
 }
+
+//--------------------------------------------------------------------------------------
+// Calculate the radius for the corresponding mip level
+//--------------------------------------------------------------------------------------
+float CalcMipLevelRadius(uint level, float len = 0.5)
+{
+	return ((1u << level) * len - 0.5) * sqrt(2.0);
+}
+
+//--------------------------------------------------------------------------------------
+// Calculate the radius for the corresponding mip level
+//--------------------------------------------------------------------------------------
+float CalcMipLevelRadius3x3(uint level, float len = 0.5)
+{
+	return (pow(3.0, level) * len - 0.5) * sqrt(2.0);
+}
+
+//--------------------------------------------------------------------------------------
+// Fetch 3x3 samples
+//--------------------------------------------------------------------------------------
+void Fetch3x3(out float4 samples3x3[9], Texture2D txSrc, uint2 pos)
+{
+	uint i = 0;
+	[unroll]
+	for (int y = -1; y <= 1; ++y)
+	{
+		[unroll]
+		for (int x = -1; x <= 1; ++x)
+		{
+			const uint2 idx = (int2)pos + int2(x, y);
+			samples3x3[i++] = txSrc[idx];
+		}
+	}
+}
