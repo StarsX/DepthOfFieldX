@@ -18,24 +18,13 @@ cbuffer cb
 RWTexture2D<float3> g_rwDst;
 RWTexture2D<float> g_rwCoC;
 
-Texture2D<float3> g_txSrc;
+Texture2D g_txSrc;
 Texture2D<float> g_txCoC;
 
 //--------------------------------------------------------------------------------------
 // Texture sampler
 //--------------------------------------------------------------------------------------
 SamplerState g_sampler;
-
-//--------------------------------------------------------------------------------------
-// Get domain location of bilinear filter
-//--------------------------------------------------------------------------------------
-float2 BilinearDomainLoc(Texture2D<float3> tx, float2 uv)
-{
-	float2 texSize;
-	tx.GetDimensions(texSize.x, texSize.y);
-
-	return frac(uv * texSize - 0.5);
-}
 
 //--------------------------------------------------------------------------------------
 // Compute shader
@@ -55,24 +44,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		g_txCoC.GatherRed(g_sampler, uv)
 		);
 
-	const float2 domain = BilinearDomainLoc(g_txSrc, uv);
-	const float2 domainInv = 1.0 - domain;
-	// |3|2|
-	// |0|1|
-	const float2 domains[] =
-	{
-		float2(domain.x, domainInv.y),
-		float2(domainInv.x, domainInv.y),
-		float2(domainInv.x, domain.y),
-		float2(domain.x, domain.y),
-	};
-	const float4 wb =
-	{
-		domainInv.x * domain.y,
-		domain.x * domain.y,
-		domain.x * domainInv.y,
-		domainInv.x * domainInv.y
-	};
+	const float4 wb = BilinearDomainWeights(g_txSrc, uv);
 
 	float4x4 srcs = transpose(gathers);
 	const float r = CalcMipLevelRadius(g_level);

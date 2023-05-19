@@ -68,3 +68,30 @@ void Fetch3x3(out float4 samples3x3[9], Texture2D txSrc, uint2 pos)
 		}
 	}
 }
+
+//--------------------------------------------------------------------------------------
+// Calculate domain weights for bilinear interpolation
+//--------------------------------------------------------------------------------------
+float4 BilinearDomainWeights(Texture2D tex, float2 uv)
+{
+	float2 texSize;
+	tex.GetDimensions(texSize.x, texSize.y);
+
+	const float2 domain = frac(uv * texSize - 0.5);
+	const float2 domainInv = 1.0 - domain;
+	// |3|2|
+	// |0|1|
+	const float2 domains[] =
+	{
+		float2(domain.x, domainInv.y),
+		float2(domainInv.x, domainInv.y),
+		float2(domainInv.x, domain.y),
+		float2(domain.x, domain.y),
+	};
+
+	return float4(
+		domainInv.x * domain.y,
+		domain.x * domain.y,
+		domain.x * domainInv.y,
+		domainInv.x * domainInv.y);
+}

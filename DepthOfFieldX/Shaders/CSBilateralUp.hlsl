@@ -35,16 +35,8 @@ Texture2D<float3> g_txSrcCoarser	: register (t4);
 SamplerState g_sampler;
 
 //--------------------------------------------------------------------------------------
-// Get domain location of bilinear filter
+// Calculate radius for the MIP level
 //--------------------------------------------------------------------------------------
-float2 BilinearDomainLoc(Texture2D tx, float2 uv)
-{
-	float2 texSize;
-	tx.GetDimensions(texSize.x, texSize.y);
-
-	return frac(uv * texSize - 0.5);
-}
-
 float CalcMipLevelRadius(float2 domain, uint level)
 {
 	return CalcMipLevelRadius(level, length(domain));
@@ -128,24 +120,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	const float4x4 coarsers = transpose(gathers);
 	const float4x3 coarserColors = transpose(gatherRGBs);
 
-	const float2 domain = BilinearDomainLoc(g_txCoarser, uv);
-	const float2 domainInv = 1.0 - domain;
-	// |3|2|
-	// |0|1|
-	const float2 domains[] =
-	{
-		float2(domain.x, domainInv.y),
-		float2(domainInv.x, domainInv.y),
-		float2(domainInv.x, domain.y),
-		float2(domain.x, domain.y),
-	};
-	const float4 wb =
-	{
-		domainInv.x * domain.y,
-		domain.x * domain.y,
-		domain.x * domainInv.y,
-		domainInv.x * domainInv.y
-	};
+	const float4 wb = BilinearDomainWeights(g_txCoarser, uv);
 
 	// Calculate Gaussian weight
 	const uint radius = CoCRadius(finerCoCs[4].x);
