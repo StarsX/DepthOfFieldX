@@ -5,8 +5,8 @@
 //#include "Advanced/XUSGAdvanced.h"
 #include "PostprocessX.h"
 
-//#define _TONE_MAPPED_BLIT_
-#define BASIS_KERNEL_SIZE 2
+#define _TONE_MAPPED_BLIT_
+#define BASIS_KERNEL_SIZE 3
 
 using namespace std;
 using namespace DirectX;
@@ -451,7 +451,7 @@ void PostprocessX::circleOfConfusion(CommandList* pCommandList)
 	// Update camera DoF parameters
 	CBCamCoCParams camCoCParams;
 	{
-		const auto aperture = 0.125f;
+		const auto aperture = 0.0625f;
 		const auto focalLength = 0.25f;
 		const auto planeInFocus = 20.0f;// +weekly(m_time * 0.5) * 8.0f;
 		const auto imageHeight = 0.0625f;

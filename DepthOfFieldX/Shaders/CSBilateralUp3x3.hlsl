@@ -112,7 +112,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
 	float4 dst = 0.0;
-	float wr = 1.0;
+	float wcs = 0.0, wbs = 0.0;
 
 	uint i;
 #if _MULTI_FINER_ == 1
@@ -132,6 +132,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	src.xyz = src.w > 0.0 ? src.xyz / src.w : finers[4].xyz;
 #endif
 
+	const int2 offset = int2(DTid % 3) - 1;
 	i = 0;
 
 	[unroll]
@@ -145,35 +146,37 @@ void main(uint2 DTid : SV_DispatchThreadID)
 			float we = Gaussian(r, br);
 
 			// Apply the convolution weight with edge-stopping function
-			//const float3 coarser = lerp(src.xyz, coarserSrcs[i].xyz, we);
-			const float3 coarser = coarsers[i].xyz;
+			const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
+			//const float3 coarser = coarsers[i].xyz;
+
+			const float2 d = 1.0 - abs(int2(x, y) * 2 - offset) / 4.0;
+			const float wd = d.x * d.y;
 
 #ifndef _WAVELET_
-			w /= 9.0;
-			wr -= w;
+			w *= wd;
+			wcs += w;
+			wbs += wd;
 			w *= we;
 
 			dst.xyz += coarser * w;
 			dst.w += w;
 #else
 			const float3 h = finers[4].xyz - coarserColors[i].xyz * we;
-			dst.xyz += (wf * h + coarser * we);
-			dst.w += (wf * (1.0 - we) + we);
+			dst.xyz += (wf * h + coarser * we) * wd;
+			dst.w += (wf * (1.0 - we) + we) * wd;
 #endif
-			//dst.xyz += coarser * we * wb[i];
-			//dst.w += we * wb[i];
 			++i;
 		}
 	}
 
 #ifndef _WAVELET_
 	// Center sample
+	const float wr = 1.0 - wcs / wbs;
 	dst.xyz += finers[4].xyz * wr;
 	dst.w += wr;
 #endif
 
 	dst.xyz = dst.w > 0.0 ? dst.xyz / dst.w : src.xyz;
-	//dst.xyz = lerp(dst.xyz, finers[4].xyz, w);
 
 	g_rwDst[DTid] = dst.xyz;
 }
