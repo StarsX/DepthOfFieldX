@@ -5,7 +5,7 @@
 //#include "Advanced/XUSGAdvanced.h"
 #include "PostprocessX.h"
 
-#define _TONE_MAPPED_BLIT_
+//#define _TONE_MAPPED_BLIT_
 #define BASIS_KERNEL_SIZE 3
 
 using namespace std;

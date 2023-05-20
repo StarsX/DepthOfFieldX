@@ -9,7 +9,7 @@
 //--------------------------------------------------------------------------------------
 cbuffer cb
 {
-	float g_level;
+	uint g_level;
 };
 
 //--------------------------------------------------------------------------------------
@@ -48,7 +48,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		[unroll]
 		for (int x = -1; x <= 1; ++x)
 		{
-			srcs[i].w = abs(cocs[i].x);
+			srcs[i].w = cocs[i].x;
 			const int br = CoCRadius(srcs[i].w);
 			float w = Gaussian(r, br);
 
