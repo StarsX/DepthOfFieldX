@@ -27,28 +27,13 @@ Texture2D g_txCoarser		: register (t0);
 Texture2D g_txCoCCoarser	: register (t1);
 Texture2D g_txSrc			: register (t2);
 Texture2D g_txCoC			: register (t3);
-Texture2D g_txSrcCoarser	: register (t4);
+Texture2D g_txCoC1			: register (t4);
+Texture2D g_txSrcCoarser	: register (t5);
 
 //--------------------------------------------------------------------------------------
 // Texture sampler
 //--------------------------------------------------------------------------------------
 SamplerState g_sampler;
-
-//--------------------------------------------------------------------------------------
-// Get domain location of bilinear filter
-//--------------------------------------------------------------------------------------
-float2 BilinearDomainLoc(Texture2D tx, float2 uv)
-{
-	float2 texSize;
-	tx.GetDimensions(texSize.x, texSize.y);
-
-	return frac(uv * texSize - 0.5);
-}
-
-float CalcMipLevelRadius(float2 domain, uint level)
-{
-	return CalcMipLevelRadius3x3(level, length(domain));
-}
 
 //--------------------------------------------------------------------------------------
 // Calculate blending weight
@@ -104,9 +89,17 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	Fetch3x3(coarserCoCs, g_txCoCCoarser, posCC);
 	Fetch3x3(coarserColors, g_txSrcCoarser, posCC);
 
+	float2 imageSize;
+	g_rwDst.GetDimensions(imageSize.x, imageSize.y);
+
+	const float2 uv = (DTid + 0.5) / imageSize;
+	float coc = g_txCoC1.SampleLevel(g_sampler, uv, 0.0).x;
+	//coc = coc < 0.0 && finerCoCs[4].x < 1.0 ? min(coc, finerCoCs[4].x) : finerCoCs[4].x;
+	coc = finerCoCs[4].x;
+
 	// Calculate Gaussian weight
-	const uint radius = CoCRadius(finerCoCs[4].x);
-	const float r = CalcMipLevelRadius(g_level + 1);
+	uint radius = CoCRadius(coc);
+	const float r = CalcMipLevelRadius3x3(g_level + 1);
 	const float wc = MipGaussianBlendWeightCoarse(g_level, radius);
 	const float wf = 1.0 - wc;
 
@@ -122,7 +115,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		if (i != 4)
 		{
 			const int br = CoCRadius(finerCoCs[i].x);
-			const float we = Gaussian(r / 2.0, br);
+			const float we = Gaussian(r / 3.0, br);
 
 			src.xyz += finers[i].xyz * we;
 			src.w += we;
@@ -144,6 +137,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 			float w = wc;
 			const int br = CoCRadius(coarserCoCs[i].x);
 			float we = Gaussian(r, br);
+			//we = 1.0;
 
 			// Apply the convolution weight with edge-stopping function
 			const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);

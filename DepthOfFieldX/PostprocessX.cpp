@@ -5,7 +5,7 @@
 //#include "Advanced/XUSGAdvanced.h"
 #include "PostprocessX.h"
 
-//#define _TONE_MAPPED_BLIT_
+#define _TONE_MAPPED_BLIT_
 #define BASIS_KERNEL_SIZE 3
 
 using namespace std;
@@ -229,8 +229,8 @@ bool PostprocessX::createPipelineLayouts()
 		// Resources
 		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 1, 0);
 		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 2, 0);
-		utilPipelineLayout->SetRange(2, DescriptorType::SRV, 2, 2);
-		utilPipelineLayout->SetRange(3, DescriptorType::SRV, 1, 4);
+		utilPipelineLayout->SetRange(2, DescriptorType::SRV, 3, 2);
+		utilPipelineLayout->SetRange(3, DescriptorType::SRV, 1, 5);
 		utilPipelineLayout->SetConstants(4, 1, 0);
 		utilPipelineLayout->SetShaderStage(0, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
@@ -395,7 +395,7 @@ bool PostprocessX::createDescriptorTables()
 			m_sources[i]->GetUAV(),
 			m_circleOfConfs[i]->GetUAV()
 		};
-		descriptorTable->SetDescriptors(0, 2, descriptors);
+		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_uavDoFDownTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
@@ -414,9 +414,10 @@ bool PostprocessX::createDescriptorTables()
 		const Descriptor descriptors[] =
 		{
 			m_sources[i]->GetSRV(),
-			m_circleOfConfs[i]->GetSRV()
+			m_circleOfConfs[i]->GetSRV(),
+			m_circleOfConfs[max<uint8_t>(i, 5)]->GetSRV()
 		};
-		descriptorTable->SetDescriptors(0, 2, descriptors);
+		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_srvDoFTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
@@ -429,7 +430,7 @@ bool PostprocessX::createDescriptorTables()
 			m_filteredImages[i]->GetSRV(),
 			m_circleOfConfs[i]->GetSRV()
 		};
-		descriptorTable->SetDescriptors(0, 2, descriptors);
+		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_srvDoFUpTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 

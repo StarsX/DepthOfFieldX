@@ -157,6 +157,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		float w = wc;
 		const int br = CoCRadius(coarsers[i].w);
 		float we = Gaussian(r, br);
+		//we = 1.0;
 
 		// Apply the convolution weight with edge-stopping function
 		const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
