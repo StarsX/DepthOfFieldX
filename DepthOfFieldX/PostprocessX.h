@@ -72,7 +72,8 @@ protected:
 
 	XUSG::Texture::uptr			m_circleOfConfs[PYRAMID_LAYERS];
 	XUSG::Texture::uptr			m_sources[PYRAMID_LAYERS];
-	XUSG::RenderTarget::uptr	m_filteredImages[PYRAMID_LAYERS];
+	XUSG::Texture::uptr			m_filteredImages[PYRAMID_LAYERS];
+	XUSG::Texture::uptr			m_filteredCoCs[PYRAMID_LAYERS];
 
 	XUSG::DescriptorTable		m_srvDepthTable;
 	XUSG::DescriptorTable		m_uavCoCTable;

@@ -22,13 +22,14 @@ cbuffer cbPerPass
 // Textures
 //--------------------------------------------------------------------------------------
 RWTexture2D<float3> g_rwDst;
+RWTexture2D<float> g_rwCoC;
 
 Texture2D g_txCoarser		: register (t0);
 Texture2D g_txCoCCoarser	: register (t1);
 Texture2D g_txSrc			: register (t2);
 Texture2D g_txCoC			: register (t3);
-Texture2D g_txCoC1			: register (t4);
-Texture2D g_txSrcCoarser	: register (t5);
+Texture2D g_txSrcCoarser	: register (t4);
+Texture2D g_txCocCoarser	: register (t5);
 
 //--------------------------------------------------------------------------------------
 // Texture sampler
@@ -80,7 +81,7 @@ float MipGaussianBlendWeightCoarse(uint level, int radius)
 [numthreads(8, 8, 1)]
 void main(uint2 DTid : SV_DispatchThreadID)
 {
-	float4 finers[9], finerCoCs[9], coarsers[9], coarserCoCs[9], coarserColors[9];
+	float4 finers[9], finerCoCs[9], coarsers[9], coarserCoCs[9], coarserColors[9], coarserCocs[9];
 	Fetch3x3(finers, g_txSrc, DTid);
 	Fetch3x3(finerCoCs, g_txCoC, DTid);
 
@@ -88,24 +89,17 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	Fetch3x3(coarsers, g_txCoarser, posCC);
 	Fetch3x3(coarserCoCs, g_txCoCCoarser, posCC);
 	Fetch3x3(coarserColors, g_txSrcCoarser, posCC);
-
-	float2 imageSize;
-	g_rwDst.GetDimensions(imageSize.x, imageSize.y);
-
-	const float2 uv = (DTid + 0.5) / imageSize;
-	float coc = g_txCoC1.SampleLevel(g_sampler, uv, 0.0).x;
-	//coc = coc < 0.0 && finerCoCs[4].x < 1.0 ? min(coc, finerCoCs[4].x) : finerCoCs[4].x;
-	coc = finerCoCs[4].x;
+	Fetch3x3(coarserCocs, g_txCocCoarser, posCC);
 
 	// Calculate Gaussian weight
-	uint radius = CoCRadius(coc);
+	uint radius = CoCRadius(finerCoCs[4].x);
 	const float r = CalcMipLevelRadius3x3(g_level + 1);
 	const float wc = MipGaussianBlendWeightCoarse(g_level, radius);
 	const float wf = 1.0 - wc;
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
 	float4 dst = 0.0;
-	float wcs = 0.0, wbs = 0.0;
+	float ws = 0.0, wcs = 0.0, wbs = 0.0;
 
 	uint i;
 #if _MULTI_FINER_ == 1
@@ -134,14 +128,14 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		[unroll]
 		for (int x = -1; x <= 1; ++x)
 		{
-			float w = wc;
 			const int br = CoCRadius(coarserCoCs[i].x);
-			float we = Gaussian(r, br);
-			//we = 1.0;
+			float w = max(MipGaussianBlendWeightCoarse(g_level, br), wc);
+			float we = 1.0;
+			w = coarserCoCs[i].x < 0.0 ? w * w : wc;
 
 			// Apply the convolution weight with edge-stopping function
-			const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
-			//const float3 coarser = coarsers[i].xyz;
+			//const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
+			const float3 coarser = coarsers[i].xyz;
 
 			const float2 d = 1.0 - abs(int2(x, y) * 2 - offset) / 4.0;
 			const float wd = d.x * d.y;
@@ -152,12 +146,12 @@ void main(uint2 DTid : SV_DispatchThreadID)
 			wbs += wd;
 			w *= we;
 
-			dst.xyz += coarser * w;
-			dst.w += w;
+			dst += float4(coarser, coarserCoCs[i].x) * w;
+			ws += w;
 #else
 			const float3 h = finers[4].xyz - coarserColors[i].xyz * we;
 			dst.xyz += (wf * h + coarser * we) * wd;
-			dst.w += (wf * (1.0 - we) + we) * wd;
+			ws += (wf * (1.0 - we) + we) * wd;
 #endif
 			++i;
 		}
@@ -166,11 +160,12 @@ void main(uint2 DTid : SV_DispatchThreadID)
 #ifndef _WAVELET_
 	// Center sample
 	const float wr = 1.0 - wcs / wbs;
-	dst.xyz += finers[4].xyz * wr;
-	dst.w += wr;
+	dst += float4(finers[4].xyz, finerCoCs[4].x) * wr;
+	ws += wr;
 #endif
 
-	dst.xyz = dst.w > 0.0 ? dst.xyz / dst.w : src.xyz;
+	dst = ws > 0.0 ? dst / ws : float4(src.xyz, finerCoCs[4].x);
 
 	g_rwDst[DTid] = dst.xyz;
+	g_rwCoC[DTid] = dst.w;
 }

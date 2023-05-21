@@ -73,10 +73,15 @@ bool PostprocessX::ChangeWindowSize(const Device* pDevice, const Texture* pRefer
 			1, ResourceFlag::ALLOW_UNORDERED_ACCESS, 1, 1, false, MemoryFlag::NONE,
 			(L"SourceLayer" + to_wstring(i)).c_str()), false);
 
-		m_filteredImages[i] = RenderTarget::MakeUnique();
+		m_filteredImages[i] = Texture::MakeUnique();
 		XUSG_N_RETURN(m_filteredImages[i]->Create(pDevice, layerSize.x, layerSize.y, pReference->GetFormat(),
-			1, ResourceFlag::ALLOW_UNORDERED_ACCESS, 1, 1, nullptr, false, MemoryFlag::NONE,
+			1, ResourceFlag::ALLOW_UNORDERED_ACCESS, 1, 1, false, MemoryFlag::NONE,
 			(L"FilteredImage" + to_wstring(i)).c_str()), false);
+
+		m_filteredCoCs[i] = Texture::MakeUnique();
+		XUSG_N_RETURN(m_filteredCoCs[i]->Create(pDevice, layerSize.x, layerSize.y, Format::R32_FLOAT,
+			1, ResourceFlag::ALLOW_UNORDERED_ACCESS, 1, 1, false, MemoryFlag::NONE,
+			(L"FilteredCoC" + to_wstring(i)).c_str()), false);
 
 		layerSize.x /= BASIS_KERNEL_SIZE;
 		layerSize.y /= BASIS_KERNEL_SIZE;
@@ -227,10 +232,10 @@ bool PostprocessX::createPipelineLayouts()
 		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
 
 		// Resources
-		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 1, 0);
+		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 2, 0);
 		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 2, 0);
-		utilPipelineLayout->SetRange(2, DescriptorType::SRV, 3, 2);
-		utilPipelineLayout->SetRange(3, DescriptorType::SRV, 1, 5);
+		utilPipelineLayout->SetRange(2, DescriptorType::SRV, 2, 2);
+		utilPipelineLayout->SetRange(3, DescriptorType::SRV, 2, 4);
 		utilPipelineLayout->SetConstants(4, 1, 0);
 		utilPipelineLayout->SetShaderStage(0, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
@@ -241,7 +246,7 @@ bool PostprocessX::createPipelineLayouts()
 		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, 0);
 
 		XUSG_X_RETURN(m_exPipelineLayouts[BILATERAL_DOF_UP], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
-			PipelineLayoutFlag::NONE, L"DoFDownLayout"), false);
+			PipelineLayoutFlag::NONE, L"DoFUpLayout"), false);
 	}
 
 	// Temporal AA
@@ -346,7 +351,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 		const auto state = Compute::State::MakeUnique(m_api);
 		state->SetPipelineLayout(m_exPipelineLayouts[BILATERAL_DOF_UP]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_DOF_UP));
-		XUSG_X_RETURN(m_exPipelines[BILATERAL_DOF_UP], state->GetPipeline(m_computePipelineLib.get(), L"DoFDown"), false);
+		XUSG_X_RETURN(m_exPipelines[BILATERAL_DOF_UP], state->GetPipeline(m_computePipelineLib.get(), L"DoFUp"), false);
 	}
 
 	// Temporal AA
@@ -403,7 +408,12 @@ bool PostprocessX::createDescriptorTables()
 	for (uint8_t i = 0; i < numLayers; ++i)
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-		descriptorTable->SetDescriptors(0, 1, &m_filteredImages[i]->GetUAV());
+		const Descriptor descriptors[] =
+		{
+			m_filteredImages[i]->GetUAV(),
+			m_filteredCoCs[i]->GetUAV()
+		};
+		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_uavDoFUpTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
@@ -414,8 +424,7 @@ bool PostprocessX::createDescriptorTables()
 		const Descriptor descriptors[] =
 		{
 			m_sources[i]->GetSRV(),
-			m_circleOfConfs[i]->GetSRV(),
-			m_circleOfConfs[max<uint8_t>(i, 5)]->GetSRV()
+			m_circleOfConfs[i]->GetSRV()
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_srvDoFTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
@@ -427,8 +436,9 @@ bool PostprocessX::createDescriptorTables()
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 		const Descriptor descriptors[] =
 		{
-			m_filteredImages[i]->GetSRV(),
-			m_circleOfConfs[i]->GetSRV()
+			i + 1 < numLayers ? m_filteredImages[i]->GetSRV() : m_sources[i]->GetSRV(),
+			i + 1 < numLayers ? m_filteredCoCs[i]->GetSRV() : m_circleOfConfs[i]->GetSRV()
+			//m_circleOfConfs[i]->GetSRV()
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_srvDoFUpTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
@@ -452,7 +462,7 @@ void PostprocessX::circleOfConfusion(CommandList* pCommandList)
 	// Update camera DoF parameters
 	CBCamCoCParams camCoCParams;
 	{
-		const auto aperture = 0.0625f;
+		const auto aperture = 0.05f;
 		const auto focalLength = 0.25f;
 		const auto planeInFocus = 20.0f;// +weekly(m_time * 0.5) * 8.0f;
 		const auto imageHeight = 0.0625f;
