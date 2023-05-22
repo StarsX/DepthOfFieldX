@@ -22,6 +22,7 @@ cbuffer cbPerPass
 // Textures
 //--------------------------------------------------------------------------------------
 RWTexture2D<float3> g_rwDst;
+RWTexture2D<float> g_rwCoC;
 
 Texture2D g_txCoarser				: register (t0);
 Texture2D<float> g_txCoCCoarser		: register (t1);
@@ -130,7 +131,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
 	float4 dst = 0.0;
-	float wr = 1.0;
+	float ws = 0.0, wr = 1.0;
 
 	uint i;
 #if _MULTI_FINER_ == 1
@@ -153,11 +154,10 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	[unroll]
 	for (i = 0; i < 4; ++i)
 	{
-		//const float radius = CalcMipLevelRadius(domains[i], g_level + 1);
-		float w = wc;
 		const int br = CoCRadius(coarsers[i].w);
-		float we = Gaussian(r, br);
-		//we = 1.0;
+		float w = max(1.0 - MipGaussianBlendWeight(g_level, br), wc);
+		float we = 1.0;
+		w = coarsers[i].w < 0.0 ? w * w : wc;
 
 		// Apply the convolution weight with edge-stopping function
 		const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
@@ -167,8 +167,8 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		wr -= w;
 		w *= we;
 
-		dst.xyz += coarser * w;
-		dst.w += w;
+		dst += float4(coarser, coarsers[i].w) * w;
+		ws += w;
 #else
 		const float3 h = finers[4].xyz - coarserColors[i] * we;
 		dst.xyz += (wf * h + coarser * we) * wb[i];
@@ -180,12 +180,13 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 #ifndef _WAVELET_
 	// Center sample
-	dst.xyz += finers[4].xyz * wr;
-	dst.w += wr;
+	dst += float4(finers[4].xyz, finerCoCs[4].x) * wr;
+	ws += wr;
 #endif
 
-	dst.xyz = dst.w > 0.0 ? dst.xyz / dst.w : src.xyz;
+	dst = ws > 0.0 ? dst / ws : float4(src.xyz, finerCoCs[4].x);
 	//dst.xyz = lerp(dst.xyz, finers[4].xyz, w);
 
 	g_rwDst[DTid] = dst.xyz;
+	g_rwCoC[DTid] = dst.w;
 }

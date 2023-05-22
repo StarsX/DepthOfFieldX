@@ -29,7 +29,7 @@ Texture2D g_txCoCCoarser	: register (t1);
 Texture2D g_txSrc			: register (t2);
 Texture2D g_txCoC			: register (t3);
 Texture2D g_txSrcCoarser	: register (t4);
-Texture2D g_txCocCoarser	: register (t5);
+//Texture2D g_txCocCoarser	: register (t5);
 
 //--------------------------------------------------------------------------------------
 // Texture sampler
@@ -89,7 +89,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	Fetch3x3(coarsers, g_txCoarser, posCC);
 	Fetch3x3(coarserCoCs, g_txCoCCoarser, posCC);
 	Fetch3x3(coarserColors, g_txSrcCoarser, posCC);
-	Fetch3x3(coarserCocs, g_txCocCoarser, posCC);
+	//Fetch3x3(coarserCocs, g_txCocCoarser, posCC);
 
 	// Calculate Gaussian weight
 	uint radius = CoCRadius(finerCoCs[4].x);
