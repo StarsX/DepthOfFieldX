@@ -51,7 +51,6 @@ void main(uint2 DTid : SV_DispatchThreadID)
 			srcs[i].w = cocs[i].x;
 			const int br = CoCRadius(srcs[i].w);
 			float w = Gaussian(r, br);
-			//w = 1.0;
 
 			dst += srcs[i] * w;
 			ws += w;

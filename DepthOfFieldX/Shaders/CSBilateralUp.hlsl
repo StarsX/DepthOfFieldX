@@ -154,10 +154,10 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	[unroll]
 	for (i = 0; i < 4; ++i)
 	{
-		const int br = CoCRadius(coarsers[i].w);
-		float w = max(1.0 - MipGaussianBlendWeight(g_level, br), wc);
-		float we = 1.0;
-		w = coarsers[i].w < 0.0 ? w * w : wc;
+		int br = CoCRadius(coarsers[i].w);
+		br = coarsers[i].w < 0.0 ? max(radius, br) : radius;
+		float w = 1.0 - MipGaussianBlendWeight(g_level, br);
+		float we = Gaussian(r, br);
 
 		// Apply the convolution weight with edge-stopping function
 		const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);

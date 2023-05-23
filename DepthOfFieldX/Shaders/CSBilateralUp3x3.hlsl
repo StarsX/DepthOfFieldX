@@ -131,7 +131,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 			int br = CoCRadius(coarserCoCs[i].x);
 			br = coarserCoCs[i].x < 0.0 ? max(radius, br) : radius;
 			float w = MipGaussianBlendWeightCoarse(g_level, br);
-			float we = 1.0;
+			float we = Gaussian(r, br);
 
 			// Apply the convolution weight with edge-stopping function
 			//const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
