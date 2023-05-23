@@ -40,7 +40,7 @@ float Gaussian(float r, int radius)
 //--------------------------------------------------------------------------------------
 float CalcMipLevelRadius(uint level, float len = 0.5)
 {
-	return ((1u << level) * len - 0.5) * sqrt(2.0);
+	return ((1u << level) * len - 0.5);
 }
 
 //--------------------------------------------------------------------------------------
@@ -48,7 +48,7 @@ float CalcMipLevelRadius(uint level, float len = 0.5)
 //--------------------------------------------------------------------------------------
 float CalcMipLevelRadius3x3(uint level, float len = 0.5)
 {
-	return (pow(3.0, level) * len - 0.5) * sqrt(2.0);
+	return (pow(3.0, level) * len - 0.5);
 }
 
 //--------------------------------------------------------------------------------------

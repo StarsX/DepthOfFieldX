@@ -94,8 +94,8 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	// Calculate Gaussian weight
 	uint radius = CoCRadius(finerCoCs[4].x);
 	const float r = CalcMipLevelRadius3x3(g_level + 1);
-	const float wc = MipGaussianBlendWeightCoarse(g_level, radius);
-	const float wf = 1.0 - wc;
+	//const float wc = MipGaussianBlendWeightCoarse(g_level, radius);
+	//const float wf = 1.0 - wc;
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
 	float4 dst = 0.0;
@@ -128,10 +128,10 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		[unroll]
 		for (int x = -1; x <= 1; ++x)
 		{
-			const int br = CoCRadius(coarserCoCs[i].x);
-			float w = max(MipGaussianBlendWeightCoarse(g_level, br), wc);
+			int br = CoCRadius(coarserCoCs[i].x);
+			br = coarserCoCs[i].x < 0.0 ? max(radius, br) : radius;
+			float w = MipGaussianBlendWeightCoarse(g_level, br);
 			float we = 1.0;
-			w = coarserCoCs[i].x < 0.0 ? w * w : wc;
 
 			// Apply the convolution weight with edge-stopping function
 			//const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
