@@ -14,7 +14,7 @@
 _Use_decl_annotations_
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 {
-	DepthOfFieldX depthOfFieldX(1280, 800, L"DirectX 12 Depth of Field");
+	DepthOfFieldX depthOfFieldX(1280, 800, L"Depth of Field");
 
 	return Win32Application::Run(&depthOfFieldX, hInstance, nCmdShow);
 }
