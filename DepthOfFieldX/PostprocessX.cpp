@@ -172,12 +172,12 @@ void PostprocessX::TemporalAA(CommandList* pCommandList, RenderTarget** ppDsts, 
 	pCommandList->Barrier(numBarriers, barriers.data());
 }
 
-DescriptorTable PostprocessX::CreateTemporalAASRVTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
-	const Texture* pVelocity, const Descriptor& srvMasks, const Descriptor& srvMeta)
+DescriptorTable PostprocessX::CreateTAASrvTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
+	const Texture* pVelocity, const Descriptor& srvShadeAmt, const Descriptor& srvMeta)
 {
 	m_pVelocity = const_cast<Texture*>(pVelocity);
 	const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-	const Descriptor descriptors[] = { srvCurrent, srvPrevious, pVelocity->GetSRV(), srvMasks, srvMeta, m_circleOfConfs[0]->GetSRV() };
+	const Descriptor descriptors[] = { srvCurrent, srvPrevious, pVelocity->GetSRV(), srvShadeAmt, srvMeta, m_circleOfConfs[0]->GetSRV() };
 	descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 
 	return descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get());

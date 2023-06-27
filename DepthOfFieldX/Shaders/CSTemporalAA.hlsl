@@ -36,7 +36,7 @@
 #define	NUM_NEIGHBORS_H	4
 
 #ifndef ALPHA_BOUND
-#define ALPHA_BOUND		0.5
+#define ALPHA_BOUND		(1.0 / 255.0)
 #endif
 
 // Use YCoCg dependently
@@ -45,17 +45,6 @@
 #else
 #define GET_LUMA4(v)	dot(v, g_luma4Base)
 #endif
-
-//--------------------------------------------------------------------------------------
-// Input/Output structures
-//--------------------------------------------------------------------------------------
-struct PS_Output
-{
-	min16float4 Color		: SV_TARGET0;
-#if _R11G11B10_
-	min16float4 Metadata	: SV_TARGET1;
-#endif
-};
 
 //--------------------------------------------------------------------------------------
 // Constant buffers
@@ -90,7 +79,7 @@ RWTexture2D<float>	g_rwMetadata;
 Texture2D<float3>	g_txCurrent;
 Texture2D<float3>	g_txHistory;
 Texture2D<float2>	g_txVelocity;
-Texture2D<float>	g_txMasks;
+Texture2D<float>	g_txShadeAmt;
 Texture2D<float>	g_txHistMeta;
 #else
 Texture2D			g_txCurrent;
@@ -170,7 +159,7 @@ float4 GetCurrent(int2 pos)
 #if _R11G11B10_
 	float4 current;
 	current.xyz = g_txCurrent[pos];
-	current.w = g_txMasks[pos];
+	current.w = g_txShadeAmt[pos];
 
 	return current;
 #else
@@ -209,10 +198,10 @@ float GetHistoricMetadata(float2 uv, int2 uvOffsets)
 //--------------------------------------------------------------------------------------
 // Encode history
 //--------------------------------------------------------------------------------------
-float EncodeHistory(uint hist, float mask)
+float EncodeHistory(uint hist, float shadeAmt)
 {
 	// About 4-bit mask and 4-bit weight
-	hist |= uint(round(mask * g_historyMax)) << g_historyBits;
+	hist |= uint(round(shadeAmt * g_historyMax)) << g_historyBits;
 
 	return hist / g_channelMax;
 }
@@ -224,10 +213,10 @@ float DecodeHistory(inout float history)
 {
 	// About 4-bit mask and 4-bit weight
 	const uint hist = history * g_channelMax;
-	const float mask = (hist >> g_historyBits) / g_historyMax;
+	const float shadeAmt = (hist >> g_historyBits) / g_historyMax;
 	history = hist & g_historyMask;
 
-	return mask;
+	return shadeAmt;
 }
 
 //--------------------------------------------------------------------------------------
@@ -264,26 +253,26 @@ min16float4 VelocityMax(int2 pos)
 }
 
 //--------------------------------------------------------------------------------------
-// Extract history amount, mask and bias
+// Extract historical shade amount, value and bias
 //--------------------------------------------------------------------------------------
-float2 HistoryMask(inout float history, float2 uv)
+float2 HistoryShadeAmount(inout float history, float2 uv)
 {
 	float histories[NUM_NEIGHBORS_H];
 	[unroll]
 	for (uint i = 0; i < NUM_NEIGHBORS_H; ++i)
 		histories[i] = GetHistoricMetadata(uv, g_texOffsets[i]);
 
-	const float mask = DecodeHistory(history);
-	float maskBias = 0.0;
+	const float shadeAmt = DecodeHistory(history);
+	float shadeBias = 0.0;
 
 	//[unroll]
 	for (i = 0; i < NUM_NEIGHBORS_H; ++i)
 	{
-		maskBias += abs(DecodeHistory(histories[i]) - mask);
+		shadeBias += abs(DecodeHistory(histories[i]) - shadeAmt);
 		history = min(histories[i], history);
 	}
 
-	return min16float2(mask, maskBias);
+	return min16float2(shadeAmt, shadeBias);
 }
 
 //--------------------------------------------------------------------------------------
@@ -301,7 +290,6 @@ min16float4 NeighborMinMax(out min16float4 neighborMin, out min16float4 neighbor
 	};
 
 	float4 neighbors[NUM_NEIGHBORS];
-	float masks[NUM_NEIGHBORS];
 	[unroll]
 	for (uint i = 0; i < NUM_NEIGHBORS; ++i)
 		neighbors[i] = GetCurrent(pos + g_texOffsets[i]);
@@ -397,12 +385,9 @@ min16float historyClamp(min16float3 history, min16float3 filtered, min16float3 n
 [numthreads(8, 8, 1)]
 void main(uint2 DTid : SV_DispatchThreadID)
 {
-	PS_Output output;
-
-	const float2 uv = (DTid + 0.5) / g_viewport;
-
 	// Load G-buffers
 	const int2 pos = DTid;
+	const float2 uv = (DTid + 0.5) / g_viewport;
 	const float4 current = GetCurrent(pos);
 	const min16float4 velocity = VelocityMax(pos);
 	const float2 uvBack = uv - velocity.xy;
@@ -413,8 +398,8 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	const min16float2 historyBlurs = min16float2(abs(velocity.xy) * historyBlurAmp);
 	min16float curHistoryBlur = saturate(historyBlurs.x + historyBlurs.y);
 
-	// Decode history weight (that indicates the convergence) and masks from metadata
-	const float2 prevMask = HistoryMask(history.w, uvBack);
+	// Decode history weight (that indicates the convergence) and shade amount from metadata
+	const float2 prevShadeAmt = HistoryShadeAmount(history.w, uvBack);
 	min16float historyBlur = min16float(1.0 - history.w / g_historyMax);
 	historyBlur = max(historyBlur, curHistoryBlur);
 	history.w += 1.0;
@@ -422,17 +407,16 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	// Compute color-space AABB
 	min16float4 neighborMin, neighborMax;
 	min16float4 currentTM = min16float4(TM(current.xyz), current.w);
-	const min16float curMask = currentTM.w * 2.0 - 1.0;
+	const min16float curShadeAmt = (currentTM.w - ALPHA_BOUND) / (1.0 - ALPHA_BOUND);
 #ifdef _FORCE_GAMMA_
 	const min16float gamma = _FORCE_GAMMA_;
 #elif _HAS_DOF_
 	const bool hasBokeh = g_txCoC[DTid] > 1.0;
-	const min16float gamma = historyBlur > 0.0 || current.w < ALPHA_BOUND || hasBokeh ||
-		abs(prevMask.x - curMask) + prevMask.y > 1.0 / g_historyMax ? 1.0 : 16.0;
 #else
-	const min16float gamma = historyBlur > 0.0 || current.w < ALPHA_BOUND ||
-		abs(prevMask.x - curMask) + prevMask.y > 1.0 / g_historyMax ? 1.0 : 16.0;
+	const bool hasBokeh = false;
 #endif
+	const min16float gamma = historyBlur > 0.0 || current.w < ALPHA_BOUND || hasBokeh ||
+		abs(prevShadeAmt.x - curShadeAmt) + prevShadeAmt.y > 1.0 / g_historyMax ? 1.0 : 16.0;
 	min16float4 filtered = NeighborMinMax(neighborMin, neighborMax, currentTM, pos, gamma);
 
 	// Clip historical color
@@ -474,7 +458,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	min16float3 result = ITM(lerp(historyTM, filtered.xyz, blend));
 	result = any(isnan(result)) ? ITM(filtered.xyz) : result;
 	history.w = min(history.w, (1.0 - curHistoryBlur) * g_historyMax);
-	history.w = EncodeHistory(history.w, curMask);
+	history.w = EncodeHistory(history.w, curShadeAmt);
 
 	g_rwColor[DTid] = float4(result, history.w);
 #if _R11G11B10_

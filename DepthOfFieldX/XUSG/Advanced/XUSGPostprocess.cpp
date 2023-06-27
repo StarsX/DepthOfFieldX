@@ -1,6 +1,7 @@
 //--------------------------------------------------------------------------------------
 // Copyright (c) XU, Tianchen. All rights reserved.
 //--------------------------------------------------------------------------------------
+
 #include "XUSGPostprocess.h"
 
 #include "PSBlit2D.h"
@@ -219,11 +220,11 @@ void Postprocess_Impl::Unsharp(const CommandList* pCommandList, const Descriptor
 	pCommandList->Draw(3, 1, 0, 0);
 }
 
-DescriptorTable Postprocess_Impl::CreateTemporalAASRVTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
-	const Descriptor& srvVelocity, const Descriptor& srvMasks, const Descriptor& srvMeta)
+DescriptorTable Postprocess_Impl::CreateTAASrvTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
+	const Descriptor& srvVelocity, const Descriptor& srvShadeAmt, const Descriptor& srvMeta)
 {
 	const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-	const Descriptor descriptors[] = { srvCurrent, srvPrevious, srvVelocity, srvMasks, srvMeta };
+	const Descriptor descriptors[] = { srvCurrent, srvPrevious, srvVelocity, srvShadeAmt, srvMeta };
 	descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 
 	return descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get());

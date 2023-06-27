@@ -35,8 +35,8 @@ namespace XUSG
 		void Unsharp(const CommandList* pCommandList, const Descriptor* pRTVs,
 			const DescriptorTable& srvTable, uint8_t numRTVs = 1);
 
-		DescriptorTable CreateTemporalAASRVTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
-			const Descriptor& srvVelocity, const Descriptor& srvMasks, const Descriptor& srvMeta);
+		DescriptorTable CreateTAASrvTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
+			const Descriptor& srvVelocity, const Descriptor& srvShadeAmt, const Descriptor& srvMeta);
 
 	protected:
 		enum DescriptorTableSlot : uint8_t

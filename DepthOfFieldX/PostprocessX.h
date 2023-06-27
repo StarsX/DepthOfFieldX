@@ -42,8 +42,8 @@ public:
 	void TemporalAA(XUSG::CommandList* pCommandList, XUSG::RenderTarget** ppDsts, XUSG::Texture** ppSrcs,
 		const XUSG::DescriptorTable& uavTable, const XUSG::DescriptorTable& srvTable, uint8_t numUAVs, uint8_t numSRVs);
 
-	XUSG::DescriptorTable CreateTemporalAASRVTable(const XUSG::Descriptor& srvCurrent, const XUSG::Descriptor& srvPrevious,
-		const XUSG::Texture* pVelocity, const XUSG::Descriptor& srvMasks, const XUSG::Descriptor& srvMeta);
+	XUSG::DescriptorTable CreateTAASrvTable(const XUSG::Descriptor& srvCurrent, const XUSG::Descriptor& srvPrevious,
+		const XUSG::Texture* pVelocity, const XUSG::Descriptor& srvShadeAmt, const XUSG::Descriptor& srvMeta);
 
 protected:
 	// Compute shaders
