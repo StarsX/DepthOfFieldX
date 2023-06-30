@@ -75,9 +75,6 @@
     <ClInclude Include="Import\dxgiformat.h">
       <Filter>Import\Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Import\dxgicommon.h">
-      <Filter>Import\Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="XUSG\Shaders\PSBlit2D.h">
       <Filter>XUSG\Shaders</Filter>
     </ClInclude>
