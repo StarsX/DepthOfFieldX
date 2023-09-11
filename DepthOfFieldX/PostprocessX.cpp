@@ -168,7 +168,7 @@ void PostprocessX::TemporalAA(CommandList* pCommandList, RenderTarget** ppDsts, 
 	const auto height = (*ppDsts)->GetHeight();
 	pCommandList->Dispatch(XUSG_DIV_UP(width, 8), XUSG_DIV_UP(height, 8), 1);
 
-	numBarriers = ppDsts[0]->SetBarrier(barriers.data(), ResourceState::SHADER_RESOURCE);
+	numBarriers = ppDsts[0]->SetBarrier(barriers.data(), ResourceState::ALL_SHADER_RESOURCE);
 	pCommandList->Barrier(numBarriers, barriers.data());
 }
 
@@ -477,7 +477,7 @@ void PostprocessX::circleOfConfusion(CommandList* pCommandList)
 
 	ResourceBarrier barriers[2];
 	auto numBarriers = m_circleOfConfs[0]->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS);
-	numBarriers = m_pDepth->SetBarrier(barriers, ResourceState::SHADER_RESOURCE, numBarriers);
+	numBarriers = m_pDepth->SetBarrier(barriers, ResourceState::ALL_SHADER_RESOURCE, numBarriers);
 	pCommandList->Barrier(numBarriers, barriers);
 
 	pCommandList->SetComputePipelineLayout(m_exPipelineLayouts[CIRCLE_OF_CONF]);
