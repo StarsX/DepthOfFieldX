@@ -120,7 +120,7 @@ void Postprocess_Impl::Render(CommandList* pCommandList, RenderTarget* pDst, Tex
 
 	// Generate Mips
 	numBarriers = m_avgLum->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS,
-		0, XUSG_BARRIER_ALL_SUBRESOURCES, BarrierFlag::RESET_SRC_STATE);
+		0, XUSG_BARRIER_ALL_SUBRESOURCES, BarrierFlag::NONE, ResourceState::COMMON);
 	numBarriers = m_logLum->GenerateMips(pCommandList, barriers, ResourceState::ALL_SHADER_RESOURCE,
 		m_pipelineLayouts[RESAMPLE_LUM], m_pipelines[RESAMPLE_LUM],
 		&m_uavSrvTables[SRV_LOG_LUM + 1], TEXTURES, nullptr, 0, numBarriers);
@@ -389,9 +389,8 @@ bool Postprocess_Impl::createPipelineLayouts()
 			0, DescriptorFlag::DATA_STATIC);
 		utilPipelineLayout->SetShaderStage(PER_FRAME, Shader::Stage::PS);
 
-		// Textures
+		// Texture
 		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txImage);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txDepth);
 		utilPipelineLayout->SetShaderStage(TEXTURES, Shader::Stage::PS);
 
 		// Sampler
