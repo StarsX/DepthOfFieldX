@@ -75,7 +75,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Import;$(ProjectDir)XUSG;$(ProjectDir)XUSG\Shaders</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Common;$(ProjectDir)XUSG;$(ProjectDir)XUSG\Shaders</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <ConformanceMode>true</ConformanceMode>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
@@ -102,7 +102,7 @@ COPY /Y "$(ProjectDir)XUSG\Bin\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Import;$(ProjectDir)XUSG;$(ProjectDir)XUSG\Shaders</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Common;$(ProjectDir)XUSG;$(ProjectDir)XUSG\Shaders</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
       <FloatingPointModel>Fast</FloatingPointModel>
@@ -131,7 +131,7 @@ COPY /Y "$(ProjectDir)XUSG\Bin\$(Platform)\$(Configuration)\*.dll" "$(ProjectDir
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Import;$(ProjectDir)XUSG;$(ProjectDir)XUSG\Shaders</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Common;$(ProjectDir)XUSG;$(ProjectDir)XUSG\Shaders</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <ConformanceMode>true</ConformanceMode>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
@@ -162,7 +162,7 @@ COPY /Y "$(ProjectDir)XUSG\Bin\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Import;$(ProjectDir)XUSG;$(ProjectDir)XUSG\Shaders</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Common;$(ProjectDir)XUSG;$(ProjectDir)XUSG\Shaders</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
       <FloatingPointModel>Fast</FloatingPointModel>
@@ -187,15 +187,15 @@ COPY /Y "$(ProjectDir)XUSG\Bin\$(Platform)\$(Configuration)\*.dll" "$(ProjectDir
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Import\d3d12.h" />
-    <ClInclude Include="Import\d3dcommon.h" />
-    <ClInclude Include="Import\DXFramework.h" />
-    <ClInclude Include="Import\DXFrameworkHelper.h" />
-    <ClInclude Include="Import\dxgiformat.h" />
-    <ClInclude Include="Import\stb_image_write.h" />
-    <ClInclude Include="Import\StepTimer.h" />
-    <ClInclude Include="Import\tinyjson.hpp" />
-    <ClInclude Include="Import\Win32Application.h" />
+    <ClInclude Include="Common\d3d12.h" />
+    <ClInclude Include="Common\d3dcommon.h" />
+    <ClInclude Include="Common\DXFramework.h" />
+    <ClInclude Include="Common\DXFrameworkHelper.h" />
+    <ClInclude Include="Common\dxgiformat.h" />
+    <ClInclude Include="Common\stb_image_write.h" />
+    <ClInclude Include="Common\StepTimer.h" />
+    <ClInclude Include="Common\tinyjson.hpp" />
+    <ClInclude Include="Common\Win32Application.h" />
     <ClInclude Include="PostprocessX.h" />
     <ClInclude Include="DepthOfFieldX.h" />
     <ClInclude Include="resource.h" />
@@ -210,23 +210,23 @@ COPY /Y "$(ProjectDir)XUSG\Bin\$(Platform)\$(Configuration)\*.dll" "$(ProjectDir
     <ClInclude Include="XUSG\Shaders\PSToneMap.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Import\DXFramework.cpp">
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">stdafx.h</ForcedIncludeFiles>
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">stdafx.h</ForcedIncludeFiles>
+    <ClCompile Include="Common\DXFramework.cpp">
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">stdafx.h</ForcedIncludeFiles>
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">stdafx.h</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">stdafx.h</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">stdafx.h</ForcedIncludeFiles>
     </ClCompile>
-    <ClCompile Include="Import\stb_image_write.cpp">
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">stdafx.h</ForcedIncludeFiles>
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">stdafx.h</ForcedIncludeFiles>
+    <ClCompile Include="Common\stb_image_write.cpp">
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">stdafx.h</ForcedIncludeFiles>
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">stdafx.h</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">stdafx.h</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">stdafx.h</ForcedIncludeFiles>
     </ClCompile>
-    <ClCompile Include="Import\Win32Application.cpp">
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">stdafx.h</ForcedIncludeFiles>
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">stdafx.h</ForcedIncludeFiles>
+    <ClCompile Include="Common\Win32Application.cpp">
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">stdafx.h</ForcedIncludeFiles>
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">stdafx.h</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">stdafx.h</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">stdafx.h</ForcedIncludeFiles>
     </ClCompile>
     <ClCompile Include="PostprocessX.cpp">
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">stdafx.h</ForcedIncludeFiles>
