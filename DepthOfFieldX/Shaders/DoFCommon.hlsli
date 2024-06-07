@@ -13,7 +13,7 @@ float CoCWeight(float coc, float radius)
 
 int CoCRadius(float coc)
 {
-	return max((abs(coc) - 1.0) * 3.0, 0.0);
+	return abs(coc) * 2.0;
 }
 
 float GaussianSigmaFromRadius(int radius)
@@ -38,17 +38,17 @@ float Gaussian(float r, int radius)
 //--------------------------------------------------------------------------------------
 // Calculate the radius for the corresponding mip level
 //--------------------------------------------------------------------------------------
-float CalcMipLevelRadius(uint level, float len = 0.5)
+float CalcMipLevelRadius(uint level, float bias = 0.0, float len = 0.5)
 {
-	return ((1u << level) * len - 0.5);
+	return (pow(2.0 + bias, level) * len - 0.5);
 }
 
 //--------------------------------------------------------------------------------------
 // Calculate the radius for the corresponding mip level
 //--------------------------------------------------------------------------------------
-float CalcMipLevelRadius3x3(uint level, float len = 0.5)
+float CalcMipLevelRadius3x3(uint level, float bias = 0.0, float len = 0.5)
 {
-	return (pow(3.0, level) * len - 0.5);
+	return (pow(3.0 + bias, level) * len - 0.5);
 }
 
 //--------------------------------------------------------------------------------------
@@ -97,4 +97,52 @@ float4 BilinearDomainWeights(Texture2D tex, float2 uv)
 		domain.x * domain.y,
 		domain.x * domainInv.y,
 		domainInv.x * domainInv.y);
+}
+
+//--------------------------------------------------------------------------------------
+// Calculate domain weights for 2x2 to 3x3 linear interpolation
+//--------------------------------------------------------------------------------------
+void DomainWeights(out float wd[9], uint2 idx)
+{
+	const int2 offset = int2(idx % 2) * 2 - 1;
+	uint i = 0;
+
+	[unroll]
+	for (int y = -1; y <= 1; ++y)
+	{
+		[unroll]
+		for (int x = -1; x <= 1; ++x)
+		{
+			const float2 d = (6 - abs(int2(x, y) * 4 - offset)) / 9.0;
+			wd[i] = d.x * d.y;
+			++i;
+		}
+	}
+}
+
+//--------------------------------------------------------------------------------------
+// Calculate domain weights for 3x3 linear interpolation
+//--------------------------------------------------------------------------------------
+void DomainWeights3x3(out float wd[9], uint2 idx)
+{
+	const int2 offset = int2(idx % 3) - 1;
+	uint i = 0;
+	float wds = 0.0;
+
+	[unroll]
+	for (int y = -1; y <= 1; ++y)
+	{
+		[unroll]
+		for (int x = -1; x <= 1; ++x)
+		{
+			const float2 d = 1.0 - abs(int2(x, y) * 2 - offset) / 4.0;
+			const float w = d.x * d.y;
+			wd[i] = w;
+			wds += w;
+			++i;
+		}
+	}
+
+	[unroll]
+	for (i = 0; i < 9; ++i) wd[i] /= wds;
 }

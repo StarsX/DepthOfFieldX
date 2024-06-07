@@ -91,15 +91,18 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	Fetch3x3(coarserColors, g_txSrcCoarser, posCC);
 	//Fetch3x3(coarserCocs, g_txCocCoarser, posCC);
 
+	// Calculate domain weights for 3x3 linear interpolation
+	float wd[9];
+	DomainWeights3x3(wd, DTid);
+
 	// Calculate Gaussian weight
-	uint radius = CoCRadius(finerCoCs[4].x);
-	const float r = CalcMipLevelRadius3x3(g_level + 1);
-	//const float wc = MipGaussianBlendWeightCoarse(g_level, radius);
-	//const float wf = 1.0 - wc;
+	const int radius = CoCRadius(finerCoCs[4].x);
+	float r = CalcMipLevelRadius3x3(g_level);
+	const float wc = MipGaussianBlendWeightCoarse(g_level, 12);
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
 	float4 dst = 0.0;
-	float ws = 0.0, wcs = 0.0, wbs = 0.0;
+	float ws = 0.0, wr = 1.0;
 
 	uint i;
 #if _MULTI_FINER_ == 1
@@ -109,7 +112,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		if (i != 4)
 		{
 			const int br = CoCRadius(finerCoCs[i].x);
-			const float we = Gaussian(r / 3.0, br);
+			const float we = Gaussian(r, br);
 
 			src.xyz += finers[i].xyz * we;
 			src.w += we;
@@ -119,7 +122,8 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	src.xyz = src.w > 0.0 ? src.xyz / src.w : finers[4].xyz;
 #endif
 
-	const int2 offset = int2(DTid % 3) - 1;
+	const float4 finer = float4(finers[4].xyz, finerCoCs[4].x);
+	r = CalcMipLevelRadius3x3(g_level + 1);
 	i = 0;
 
 	[unroll]
@@ -128,30 +132,33 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		[unroll]
 		for (int x = -1; x <= 1; ++x)
 		{
-			int br = CoCRadius(coarserCoCs[i].x);
-			br = coarserCoCs[i].x < 0.0 ? max(radius, br) : radius;
-			float w = MipGaussianBlendWeightCoarse(g_level, br);
-			float we = Gaussian(r, br);
+			const bool isOccluded = finerCoCs[4].x < coarserCoCs[i].x;
+			const int cr = CoCRadius(coarserCoCs[i].x);
+
+			float w = wc;
+			const int br = isOccluded ? radius : cr;
+			const float we = Gaussian(r, br);
+
+			w *= MipGaussianBlendWeightCoarse(g_level, max(radius, cr));
 
 			// Apply the convolution weight with edge-stopping function
-			//const float3 coarser = lerp(src.xyz, coarsers[i].xyz, we);
-			const float3 coarser = coarsers[i].xyz;
-
-			const float2 d = 1.0 - abs(int2(x, y) * 2 - offset) / 4.0;
-			const float wd = d.x * d.y;
+			//const float coc = isOccluded ? finerCoCs[4].x : coarserCoCs[i].x;
+			const float coc = coarserCoCs[i].x;
+			float4 coarser = float4(coarsers[i].xyz, coc);
+			//coarser.xyz = lerp(src.xyz, coarser.xyz, we);
 
 #ifndef _WAVELET_
-			w *= wd;
-			wcs += w;
-			wbs += wd;
+			w *= wd[i];
+			wr -= w;
 			w *= we;
 
-			dst += float4(coarser, coarserCoCs[i].x) * w;
+			dst += coarser * w;
 			ws += w;
 #else
-			const float3 h = finers[4].xyz - coarserColors[i].xyz * we;
-			dst.xyz += (wf * h + coarser * we) * wd;
-			ws += (wf * (1.0 - we) + we) * wd;
+			const float wf = 1.0 - w;
+			const float4 h = finer - coarser * we;
+			dst += (wf * h + coarser * we) * wd[i];
+			ws += (wf * (1.0 - we) + we) * wd[i];
 #endif
 			++i;
 		}
@@ -159,12 +166,11 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 #ifndef _WAVELET_
 	// Center sample
-	const float wr = 1.0 - wcs / wbs;
-	dst += float4(finers[4].xyz, finerCoCs[4].x) * wr;
+	dst += finer * wr;
 	ws += wr;
 #endif
 
-	dst = ws > 0.0 ? dst / ws : float4(src.xyz, finerCoCs[4].x);
+	dst = ws > 0.0 ? dst / ws : finer;
 
 	g_rwDst[DTid] = dst.xyz;
 	g_rwCoC[DTid] = dst.w;

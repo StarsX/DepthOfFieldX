@@ -6,7 +6,7 @@
 #include "PostprocessX.h"
 
 #define _TONE_MAPPED_BLIT_
-#define BASIS_KERNEL_SIZE 3
+#define BASIS_KERNEL_SIZE 2
 
 using namespace std;
 using namespace DirectX;
@@ -325,6 +325,37 @@ bool PostprocessX::createPipelineLayouts()
 	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_ITM_BLIT, L"CSITMBlit.cso"), false);
 	m_exPipelineLayouts[ITM_BLIT] = m_exPipelineLayouts[TM_BLIT];
 
+	// Tone mapping
+	{
+		auto txImage = 0u;
+		auto roLogLum = txImage + 1;
+		auto txCoC = roLogLum + 1;
+
+		// Load shader
+		XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::PS, PS_TONE_MAP, L"PSToneMap.cso"), false);
+
+		// Get pixel shader slots
+		auto reflector = m_shaderLib->GetReflector(Shader::Stage::PS, PS_TONE_MAP);
+		if (reflector && reflector->IsValid())
+		{
+			// Get shader resource slots
+			txImage = reflector->GetResourceBindingPointByName("g_txImage", txImage);
+			roLogLum = reflector->GetResourceBindingPointByName("g_roLogLum", roLogLum);
+		}
+
+		// Pipeline layout utility
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+
+		// Textures
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txImage);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, roLogLum);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txCoC);
+		utilPipelineLayout->SetShaderStage(TEXTURES, Shader::Stage::PS);
+
+		XUSG_X_RETURN(m_pipelineLayouts[TONE_MAP], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
+			PipelineLayoutFlag::NONE, L"ToneMappingLayout"), false);
+	}
+
 	return true;
 }
 
@@ -376,6 +407,18 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 		state->SetPipelineLayout(m_exPipelineLayouts[ITM_BLIT]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_ITM_BLIT));
 		XUSG_X_RETURN(m_exPipelines[ITM_BLIT], state->GetPipeline(m_computePipelineLib.get(), L"InverseToneMappedBlit"), false);
+	}
+
+	// Tone mapping
+	{
+		// Get tone-mapping pipeline
+		const auto state = Graphics::State::MakeUnique(m_api);
+		state->SetPipelineLayout(m_pipelineLayouts[TONE_MAP]);
+		state->SetShader(Shader::Stage::VS, m_shaderLib->GetShader(Shader::Stage::VS, VS_SCREEN_QUAD));
+		state->SetShader(Shader::Stage::PS, m_shaderLib->GetShader(Shader::Stage::PS, PS_TONE_MAP));
+		state->OMSetNumRenderTargets(1);
+		state->OMSetRTVFormat(0, ldrFormat);
+		XUSG_X_RETURN(m_pipelines[TONE_MAP], state->GetPipeline(m_graphicsPipelineLib.get(), L"ToneMapping"), false);
 	}
 
 	return true;
@@ -442,6 +485,13 @@ bool PostprocessX::createDescriptorTables()
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_srvDoFUpTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
+	}
+
+	{
+		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+		const Descriptor descriptors[] = { m_postImage->GetSRV(), m_avgLum->GetSRV(), m_circleOfConfs[0]->GetSRV() };
+		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
+		XUSG_X_RETURN(m_uavSrvTables[SRV_COLOR_AVG_LUM], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
 	return true;;

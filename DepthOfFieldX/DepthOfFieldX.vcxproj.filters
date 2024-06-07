@@ -149,6 +149,9 @@
     <None Include="Shaders\DoFCommon.hlsli">
       <Filter>Shaders</Filter>
     </None>
+    <None Include="Shaders\Common.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Shaders\CSBilateralDown.hlsl">
@@ -173,6 +176,9 @@
       <Filter>Shaders</Filter>
     </FxCompile>
     <FxCompile Include="Shaders\CSBilateralUp3x3.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\PSToneMap.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
   </ItemGroup>

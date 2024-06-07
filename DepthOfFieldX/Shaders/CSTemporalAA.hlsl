@@ -411,7 +411,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 #ifdef _FORCE_GAMMA_
 	const min16float gamma = _FORCE_GAMMA_;
 #elif _HAS_DOF_
-	const bool hasBokeh = g_txCoC[DTid] > 1.0;
+	const bool hasBokeh = abs(g_txCoC[DTid]) > 1.0;
 #else
 	const bool hasBokeh = false;
 #endif
