@@ -98,7 +98,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	// Calculate Gaussian weight
 	const int radius = CoCRadius(finerCoCs[4].x);
 	float r = CalcMipLevelRadius3x3(g_level);
-	const float wc = MipGaussianBlendWeightCoarse(g_level, 12);
+	const float wc = MipGaussianBlendWeightCoarse(g_level, 24);
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
 	float4 dst = 0.0;

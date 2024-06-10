@@ -126,8 +126,8 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	// Calculate Gaussian weight
 	const int radius = CoCRadius(finerCoCs[4].x);
 	float r = CalcMipLevelRadius(g_level, 0.5);
-	const float wc = MipGaussianBlendWeightCoarse(g_level, 12);
-	//const float wf = MipGaussianBlendWeight(g_level, 12);
+	const float wc = MipGaussianBlendWeightCoarse(g_level, 24);
+	//const float wf = MipGaussianBlendWeight(g_level, 24);
 	//const float wc = 1.0 - wf;
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
@@ -142,10 +142,10 @@ void main(uint2 DTid : SV_DispatchThreadID)
 		if (i != 4)
 		{
 			const int br = CoCRadius(finerCoCs[i].x);
-			const float we = Gaussian(r, br);
+			const float fr = Gaussian(r, br);
 
-			src.xyz += finers[i].xyz * we;
-			src.w += we;
+			src.xyz += finers[i].xyz * fr;
+			src.w += fr;
 		}
 	}
 
@@ -167,7 +167,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 			float w = wc;
 			const int br = isOccluded ? radius : cr;
-			const float we = Gaussian(r, br);
+			const float fr = Gaussian(r, br);
 
 			w *= MipGaussianBlendWeightCoarse(g_level, max(radius, cr));
 			//w *= 1.0 - MipGaussianBlendWeight(g_level, max(radius, cr));
@@ -176,20 +176,20 @@ void main(uint2 DTid : SV_DispatchThreadID)
 			//const float coc = isOccluded ? finerCoCs[4].x : coarserCoCs[i].x;
 			const float coc = coarserCoCs[i].x;
 			float4 coarser = float4(coarsers[i].xyz, coc);
-			coarser.xyz = lerp(src.xyz, coarser.xyz, we);
+			coarser.xyz = lerp(src.xyz, coarser.xyz, fr);
 
 #ifndef _WAVELET_
 			w *= wd[i];
 			wr -= w;
-			w *= we;
+			w *= fr;
 
 			dst += coarser * w;
 			ws += w;
 #else
 			const float wf = 1.0 - w;
-			const float4 h = finer - coarser * we;
-			dst += (wf * h + coarser * we) * wd[i];
-			ws += (wf * (1.0 - we) + we) * wd[i];
+			const float4 h = finer - coarser * fr;
+			dst += (wf * h + coarser * fr) * wd[i];
+			ws += (wf * (1.0 - fr) + fr) * wd[i];
 #endif
 			++i;
 		}

@@ -13,7 +13,7 @@ float CoCWeight(float coc, float radius)
 
 int CoCRadius(float coc)
 {
-	return abs(coc) * 2.0;
+	return abs(coc) * 3.0;
 }
 
 float GaussianSigmaFromRadius(int radius)
@@ -113,7 +113,7 @@ void DomainWeights(out float wd[9], uint2 idx)
 		[unroll]
 		for (int x = -1; x <= 1; ++x)
 		{
-			const float2 d = (6 - abs(int2(x, y) * 4 - offset)) / 9.0;
+			const float2 d = min(6 - abs(int2(x, y) * 4 - offset), 4.0) / 8.0;
 			wd[i] = d.x * d.y;
 			++i;
 		}

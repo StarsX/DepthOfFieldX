@@ -17,11 +17,13 @@ using namespace XUSG;
 
 DepthOfFieldX::DepthOfFieldX(uint32_t width, uint32_t height, wstring name) :
 	DXFramework(width, height, name),
+	m_readBuffer(nullptr),
 	m_frameParity(0),
 	m_frameIndex(0),
 	m_fence(nullptr),
 	m_useIBL(true),
 	m_isPaused(false),
+	m_useWarpDevice(false),
 	m_isTracking(false),
 	m_sceneFile(L"Assets/Scene.json"),
 	m_screenShot(0)
@@ -81,11 +83,13 @@ void DepthOfFieldX::LoadPipeline()
 		dxgiAdapter = nullptr;
 		ThrowIfFailed(m_factory->EnumAdapters1(i, &dxgiAdapter));
 
+		dxgiAdapter->GetDesc1(&dxgiAdapterDesc);
+		if (m_useWarpDevice && dxgiAdapterDesc.DeviceId != 0x8c) continue;
+
 		m_device = Device::MakeUnique(Api);
 		hr = m_device->Create(dxgiAdapter.get(), D3D_FEATURE_LEVEL_11_0);
 	}
 
-	dxgiAdapter->GetDesc1(&dxgiAdapterDesc);
 	if (dxgiAdapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
 		m_title += dxgiAdapterDesc.VendorId == 0x1414 && dxgiAdapterDesc.DeviceId == 0x8c ? L" (WARP)" : L" (Software)";
 	ThrowIfFailed(hr);
@@ -374,6 +378,8 @@ void DepthOfFieldX::OnDestroy()
 
 void DepthOfFieldX::OnWindowSizeChanged(int width, int height)
 {
+	if (height > 1080) return;
+
 	if (!Win32Application::GetHwnd())
 	{
 		throw std::exception("Call SetWindow with a valid Win32 window handle");
@@ -515,25 +521,26 @@ void DepthOfFieldX::ParseCommandLineArgs(wchar_t* argv[], int argc)
 {
 	DXFramework::ParseCommandLineArgs(argv, argc);
 
-	auto specifyWindowSize = 0;
-
 	for (auto i = 1; i < argc; ++i)
 	{
-		if (_wcsnicmp(argv[i], L"-scene", wcslen(argv[i])) == 0 ||
-			_wcsnicmp(argv[i], L"/scene", wcslen(argv[i])) == 0 && i + 1 < argc)
-			m_sceneFile = argv[i + 1];
-		else if ((_wcsnicmp(argv[i], L"-width", wcslen(argv[i])) == 0 ||
-			_wcsnicmp(argv[i], L"/width", wcslen(argv[i])) == 0 ||
-			_wcsnicmp(argv[i], L"-w", wcslen(argv[i])) == 0 ||
-			_wcsnicmp(argv[i], L"/w", wcslen(argv[i])) == 0) && i + 1 < argc)
-			specifyWindowSize = swscanf_s(argv[i + 1], L"%u", &m_width);
-		else if ((_wcsnicmp(argv[i], L"-height", wcslen(argv[i])) == 0 ||
-			_wcsnicmp(argv[i], L"/height", wcslen(argv[i])) == 0 ||
-			_wcsnicmp(argv[i], L"-h", wcslen(argv[i])) == 0 ||
-			_wcsnicmp(argv[i], L"/h", wcslen(argv[i])) == 0) && i + 1 < argc)
-			specifyWindowSize = swscanf_s(argv[i + 1], L"%u", &m_height);
-		else if (_wcsnicmp(argv[i], L"-noIBL", wcslen(argv[i])) == 0 ||
-			_wcsnicmp(argv[i], L"/noIBL", wcslen(argv[i])) == 0)
+		if (wcsncmp(argv[i], L"-warp", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"/warp", wcslen(argv[i])) == 0)
+			m_useWarpDevice = true;
+		else if ((wcsncmp(argv[i], L"-scene", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"/scene", wcslen(argv[i])) == 0) && i + 1 < argc)
+			m_sceneFile = argv[++i];
+		else if ((wcsncmp(argv[i], L"-width", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"/width", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"-w", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"/w", wcslen(argv[i])) == 0) && i + 1 < argc)
+			m_width = stoul(argv[++i]);
+		else if ((wcsncmp(argv[i], L"-height", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"/height", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"-h", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"/h", wcslen(argv[i])) == 0) && i + 1 < argc)
+			m_height = stoul(argv[++i]);
+		else if (wcsncmp(argv[i], L"-noIBL", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"/noIBL", wcslen(argv[i])) == 0)
 			m_useIBL = false;
 	}
 }
