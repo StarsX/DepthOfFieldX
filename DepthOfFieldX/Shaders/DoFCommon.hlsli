@@ -113,7 +113,9 @@ void DomainWeights(out float wd[9], uint2 idx)
 		[unroll]
 		for (int x = -1; x <= 1; ++x)
 		{
-			const float2 d = min(6 - abs(int2(x, y) * 4 - offset), 4.0) / 8.0;
+			float2 d = int2(x, y) * 4 - offset;
+			//d = (33.0 - d * d) / 64.0;
+			d = (17.0 - abs(d) * 3.0) / 24.0;
 			wd[i] = d.x * d.y;
 			++i;
 		}
