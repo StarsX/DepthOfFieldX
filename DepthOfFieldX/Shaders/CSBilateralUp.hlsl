@@ -157,42 +157,37 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	i = 0;
 
 	[unroll]
-	for (int y = -1; y <= 1; ++y)
+	for (i = 0; i < 9; ++i)
 	{
-		[unroll]
-		for (int x = -1; x <= 1; ++x)
-		{
-			const bool isOccluded = finerCoCs[4].x < coarserCoCs[i].x;
-			const int cr = CoCRadius(coarserCoCs[i].x);
+		const bool isOccluded = finerCoCs[4].x < coarserCoCs[i].x;
+		const int cr = CoCRadius(coarserCoCs[i].x);
 
-			float w = wc;
-			const int br = isOccluded ? radius : cr;
-			const float fr = Gaussian(r, br);
+		float w = wc;
+		const int br = isOccluded ? radius : cr;
+		const float fr = Gaussian(r, br);
 
-			w *= MipGaussianBlendWeightCoarse(g_level, max(radius, cr));
-			//w *= 1.0 - MipGaussianBlendWeight(g_level, max(radius, cr));
+		w *= MipGaussianBlendWeightCoarse(g_level, max(radius, cr));
+		//w *= 1.0 - MipGaussianBlendWeight(g_level, max(radius, cr));
 
-			// Apply the convolution weight with edge-stopping function
-			//const float coc = isOccluded ? finerCoCs[4].x : coarserCoCs[i].x;
-			const float coc = coarserCoCs[i].x;
-			float4 coarser = float4(coarsers[i].xyz, coc);
-			coarser.xyz = lerp(src.xyz, coarser.xyz, fr);
+		// Apply the convolution weight with edge-stopping function
+		//const float coc = isOccluded ? finerCoCs[4].x : coarserCoCs[i].x;
+		const float coc = coarserCoCs[i].x;
+		float4 coarser = float4(coarsers[i].xyz, coc);
+		coarser.xyz = lerp(src.xyz, coarser.xyz, fr);
 
 #ifndef _WAVELET_
-			w *= wd[i];
-			wr -= w;
-			w *= fr;
+		w *= wd[i];
+		wr -= w;
+		w *= fr;
 
-			dst += coarser * w;
-			ws += w;
+		dst += coarser * w;
+		ws += w;
 #else
-			const float wf = 1.0 - w;
-			const float4 h = finer - coarser * fr;
-			dst += (wf * h + coarser * fr) * wd[i];
-			ws += (wf * (1.0 - fr) + fr) * wd[i];
+		const float wf = 1.0 - w;
+		const float4 h = finer - coarser * fr;
+		dst += (wf * h + coarser * fr) * wd[i];
+		ws += (wf * (1.0 - fr) + fr) * wd[i];
 #endif
-			++i;
-		}
 	}
 
 #ifndef _WAVELET_

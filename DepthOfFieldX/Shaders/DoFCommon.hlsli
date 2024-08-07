@@ -66,7 +66,7 @@ void Fetch3x3(out float4 samples3x3[9], Texture2D txSrc, uint2 pos)
 		[unroll]
 		for (int x = -1; x <= 1; ++x)
 		{
-			const uint2 idx = clamp((int2)pos + int2(x, y), 0, texSize - 1);
+			const int2 idx = clamp((int2)pos + int2(x, y), 0, texSize - 1);
 			samples3x3[i++] = txSrc[idx];
 		}
 	}
