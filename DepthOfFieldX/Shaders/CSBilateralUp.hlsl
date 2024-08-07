@@ -127,12 +127,14 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	const int radius = CoCRadius(finerCoCs[4].x);
 	float r = CalcMipLevelRadius(g_level, 0.5);
 	const float wc = MipGaussianBlendWeightCoarse(g_level, 24);
-	//const float wf = MipGaussianBlendWeight(g_level, 24);
-	//const float wc = 1.0 - wf;
+	//const float wc = 1.0 - MipGaussianBlendWeight(g_level, 24);
 
 	float4 src = float4(finers[4].xyz, 1.0); // Fallback to the center sample
 	float4 dst = 0.0;
-	float ws = 0.0, wr = 1.0;
+	float ws = 0.0;
+#ifndef _WAVELET_
+	float wf = 1.0;
+#endif
 
 	uint i;
 #if _MULTI_FINER_ == 1
@@ -177,7 +179,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 #ifndef _WAVELET_
 		w *= wd[i];
-		wr -= w;
+		wf -= w;
 		w *= fr;
 
 		dst += coarser * w;
@@ -192,8 +194,8 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 #ifndef _WAVELET_
 	// Center sample
-	dst += finer * wr;
-	ws += wr;
+	dst += finer * wf;
+	ws += wf;
 #endif
 
 	dst = ws > 0.0 ? dst / ws : finer;
