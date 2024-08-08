@@ -202,7 +202,7 @@ bool PostprocessX::createPipelineLayouts()
 		utilPipelineLayout->SetShaderStage(0, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
 
-		// Samplers
+		// Sampler
 		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, 0);
 
 		XUSG_X_RETURN(m_exPipelineLayouts[BILATERAL_DOF_DOWN], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
@@ -225,9 +225,6 @@ bool PostprocessX::createPipelineLayouts()
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(2, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(3, Shader::Stage::CS);
-
-		// Samplers
-		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, 0);
 
 		XUSG_X_RETURN(m_exPipelineLayouts[BILATERAL_DOF_UP], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
 			PipelineLayoutFlag::NONE, L"DoFUpLayout"), false);
