@@ -6,8 +6,6 @@
 
 #include "Advanced/XUSGPostprocess.h"
 
-#define PYRAMID_LAYERS 7
-
 class PostprocessX :
     public XUSG::Postprocess_Impl
 {
@@ -70,10 +68,10 @@ protected:
 	XUSG::PipelineLayout		m_exPipelineLayouts[NUM_EX_PIPELINE];
 	XUSG::Pipeline				m_exPipelines[NUM_EX_PIPELINE];
 
-	XUSG::Texture::uptr			m_circleOfConfs[PYRAMID_LAYERS];
-	XUSG::Texture::uptr			m_sources[PYRAMID_LAYERS];
-	XUSG::Texture::uptr			m_filteredImages[PYRAMID_LAYERS];
-	XUSG::Texture::uptr			m_filteredCoCs[PYRAMID_LAYERS];
+	XUSG::Texture::uptr			m_circleOfConf;
+	XUSG::Texture::uptr			m_source;
+	XUSG::Texture::uptr			m_filteredImage;
+	XUSG::Texture::uptr			m_filteredCoC;
 
 	XUSG::DescriptorTable		m_srvDepthTable;
 	XUSG::DescriptorTable		m_uavCoCTable;
@@ -86,7 +84,7 @@ protected:
 	XUSG::DepthStencil* m_pDepth;
 	XUSG::Texture* m_pVelocity;
 
-	uint8_t m_numLayers;
+	uint8_t m_numMipLevels;
 
 	double m_time = 0.0;
 };

@@ -82,27 +82,6 @@ float MipGaussianBlendWeightCoarse(uint level, int radius)
 	return exp(0.5 * (r * r - r1 * r1) / sigma_sq);
 }
 
-float4 GetSampleIn2x2From3x3(float4 samples3x3[9], uint2 i)
-{
-	// |0|1|2|
-	// |3|4|5|
-	// |6|7|8|
-
-	// |3|2|
-	// |0|1|
-	static const uint4x4 m =
-	{
-		uint4(6, 7, 4, 3),
-		uint4(7, 8, 5, 4),
-		uint4(4, 5, 2, 1),
-		uint4(3, 4, 1, 0)
-	};
-
-	const uint idx = m[i.x][i.y];
-
-	return samples3x3[idx];
-}
-
 //--------------------------------------------------------------------------------------
 // Compute shader
 //--------------------------------------------------------------------------------------
@@ -156,7 +135,6 @@ void main(uint2 DTid : SV_DispatchThreadID)
 
 	const float4 finer = float4(finers[4].xyz, finerCoCs[4].x);
 	r = CalcMipLevelRadius(g_level + 1, 0.5);
-	i = 0;
 
 	[unroll]
 	for (i = 0; i < 9; ++i)

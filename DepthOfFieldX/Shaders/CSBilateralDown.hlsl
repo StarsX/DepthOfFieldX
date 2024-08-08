@@ -50,14 +50,14 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	const float r = CalcMipLevelRadius(g_level);
 
 	float4 dst = 0.0;
-	float ws = 0.0, w_max = 0.0;
+	float ws = 0.0;
 
 	[unroll]
 	for (uint i = 0; i < 4; ++i)
 	{
 		const int br = CoCRadius(srcs[i].w);
-		float w = Gaussian(r, br);
-		w *= wb[i];
+		float w = wb[i];
+		w *= Gaussian(r, br);
 
 		dst += srcs[i] * w;
 		ws += w;

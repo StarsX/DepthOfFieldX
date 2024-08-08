@@ -6,7 +6,6 @@
 #include "PostprocessX.h"
 
 #define _TONE_MAPPED_BLIT_
-#define BASIS_KERNEL_SIZE 2
 
 using namespace std;
 using namespace DirectX;
@@ -51,41 +50,27 @@ bool PostprocessX::ChangeWindowSize(const Device* pDevice, const Texture* pRefer
 	// Create resources and pipelines
 	const auto width = static_cast<uint32_t>(pReference->GetWidth());
 	const auto height = pReference->GetHeight();
-	//const auto numMips = CalculateMipLevels(width, height);
-	m_numLayers = PYRAMID_LAYERS;
+	m_numMipLevels = CalculateMipLevels(width, height);
 
-	XMUINT2 layerSize(width, height);
-	for (uint8_t i = 0; i < PYRAMID_LAYERS; ++i)
-	{
-		if (layerSize.x == 0 || layerSize.y == 0)
-		{
-			m_numLayers = i;
-			break;
-		}
+	m_circleOfConf = Texture::MakeUnique();
+	XUSG_N_RETURN(m_circleOfConf->Create(pDevice, width, height, Format::R32_FLOAT, 1,
+		ResourceFlag::ALLOW_UNORDERED_ACCESS, m_numMipLevels, 1, false, MemoryFlag::NONE,
+		L"CircleOfConfusion"), false);
 
-		m_circleOfConfs[i] = Texture::MakeUnique();
-		XUSG_N_RETURN(m_circleOfConfs[i]->Create(pDevice, layerSize.x, layerSize.y, Format::R32_FLOAT,
-			1, ResourceFlag::ALLOW_UNORDERED_ACCESS, 1, 1, false, MemoryFlag::NONE,
-			(L"CircleOfConfusion" + to_wstring(i)).c_str()), false);
+	m_source = Texture::MakeUnique();
+	XUSG_N_RETURN(m_source->Create(pDevice, width, height, pReference->GetFormat(), 1,
+		ResourceFlag::ALLOW_UNORDERED_ACCESS, m_numMipLevels, 1, false, MemoryFlag::NONE,
+		L"SourceImage"), false);
 
-		m_sources[i] = Texture::MakeUnique();
-		XUSG_N_RETURN(m_sources[i]->Create(pDevice, layerSize.x, layerSize.y, pReference->GetFormat(),
-			1, ResourceFlag::ALLOW_UNORDERED_ACCESS, 1, 1, false, MemoryFlag::NONE,
-			(L"SourceLayer" + to_wstring(i)).c_str()), false);
+	m_filteredImage = Texture::MakeUnique();
+	XUSG_N_RETURN(m_filteredImage->Create(pDevice, width, height, pReference->GetFormat(),
+		1, ResourceFlag::ALLOW_UNORDERED_ACCESS, m_numMipLevels, 1, false, MemoryFlag::NONE,
+		L"FilteredImage"), false);
 
-		m_filteredImages[i] = Texture::MakeUnique();
-		XUSG_N_RETURN(m_filteredImages[i]->Create(pDevice, layerSize.x, layerSize.y, pReference->GetFormat(),
-			1, ResourceFlag::ALLOW_UNORDERED_ACCESS, 1, 1, false, MemoryFlag::NONE,
-			(L"FilteredImage" + to_wstring(i)).c_str()), false);
-
-		m_filteredCoCs[i] = Texture::MakeUnique();
-		XUSG_N_RETURN(m_filteredCoCs[i]->Create(pDevice, layerSize.x, layerSize.y, Format::R32_FLOAT,
-			1, ResourceFlag::ALLOW_UNORDERED_ACCESS, 1, 1, false, MemoryFlag::NONE,
-			(L"FilteredCoC" + to_wstring(i)).c_str()), false);
-
-		layerSize.x /= BASIS_KERNEL_SIZE;
-		layerSize.y /= BASIS_KERNEL_SIZE;
-	}
+	m_filteredCoC = Texture::MakeUnique();
+	XUSG_N_RETURN(m_filteredCoC->Create(pDevice, width, height, Format::R32_FLOAT,
+		1, ResourceFlag::ALLOW_UNORDERED_ACCESS, m_numMipLevels, 1, false, MemoryFlag::NONE,
+		L"FilteredCoC"), false);
 
 	return createDescriptorTables();
 }
@@ -109,10 +94,10 @@ void PostprocessX::DepthOfField(XUSG::CommandList* pCommandList, Texture* pScene
 	const DescriptorTable& uavTable, const DescriptorTable& srvTable)
 {
 #ifdef _TONE_MAPPED_BLIT_
-	toneMappedBlit(pCommandList, m_sources->get(), pSceneColor, m_uavDoFDownTables[0], srvTable, false);
+	toneMappedBlit(pCommandList, m_source.get(), pSceneColor, m_uavDoFDownTables[0], srvTable, false);
 #else
 	ResourceBarrier barriers[2];
-	auto numBarriers = m_sources[0]->SetBarrier(barriers, ResourceState::COPY_DEST);
+	auto numBarriers = m_source->SetBarrier(barriers, ResourceState::COPY_DEST, 0, 0);
 	numBarriers = pSceneColor->SetBarrier(barriers, ResourceState::COPY_SOURCE, numBarriers);
 	pCommandList->Barrier(numBarriers, barriers);
 
@@ -128,9 +113,9 @@ void PostprocessX::DepthOfField(XUSG::CommandList* pCommandList, Texture* pScene
 	bilateralUp(pCommandList);
 
 #ifdef _TONE_MAPPED_BLIT_
-	toneMappedBlit(pCommandList, pSceneColor, m_filteredImages->get(), uavTable, m_srvDoFUpTables[0], true);
+	toneMappedBlit(pCommandList, pSceneColor, m_filteredImage.get(), uavTable, m_srvDoFUpTables[0], true);
 #else
-	numBarriers = m_filteredImages[0]->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE | ResourceState::COPY_SOURCE, 0, 0);
+	numBarriers = m_filteredImage->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE | ResourceState::COPY_SOURCE, 0, 0);
 	numBarriers = pSceneColor->SetBarrier(barriers, ResourceState::COPY_DEST, numBarriers);
 	pCommandList->Barrier(numBarriers, barriers);
 
@@ -177,7 +162,7 @@ DescriptorTable PostprocessX::CreateTAASrvTable(const Descriptor& srvCurrent, co
 {
 	m_pVelocity = const_cast<Texture*>(pVelocity);
 	const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-	const Descriptor descriptors[] = { srvCurrent, srvPrevious, pVelocity->GetSRV(), srvShadeAmt, srvMeta, m_circleOfConfs[0]->GetSRV() };
+	const Descriptor descriptors[] = { srvCurrent, srvPrevious, pVelocity->GetSRV(), srvShadeAmt, srvMeta, m_circleOfConf->GetSRV() };
 	descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 
 	return descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get());
@@ -185,7 +170,6 @@ DescriptorTable PostprocessX::CreateTAASrvTable(const Descriptor& srvCurrent, co
 
 bool PostprocessX::createPipelineLayouts()
 {
-	assert(BASIS_KERNEL_SIZE == 2 || BASIS_KERNEL_SIZE == 3);
 	const auto pSampler = m_descriptorTableLib->GetSampler(LINEAR_CLAMP);
 
 	// CoC generation
@@ -206,7 +190,7 @@ bool PostprocessX::createPipelineLayouts()
 	}
 
 	// DoF down sampling
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_DOWN, BASIS_KERNEL_SIZE == 2 ? L"CSBilateralDown.cso" : L"CSBilateralDown3x3.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_DOWN, L"CSBilateralDown.cso"), false);
 	{
 		// Pipeline layout utility
 		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
@@ -226,7 +210,7 @@ bool PostprocessX::createPipelineLayouts()
 	}
 
 	// DoF up sampling
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_UP, BASIS_KERNEL_SIZE == 2 ? L"CSBilateralUp.cso" : L"CSBilateralUp3x3.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_UP, L"CSBilateralUp.cso"), false);
 	{
 		// Pipeline layout utility
 		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
@@ -426,61 +410,59 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 
 bool PostprocessX::createDescriptorTables()
 {
-	const auto& numLayers = m_numLayers;
-
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-		descriptorTable->SetDescriptors(0, 1, &m_circleOfConfs[0]->GetUAV());
+		descriptorTable->SetDescriptors(0, 1, &m_circleOfConf->GetUAV());
 		XUSG_X_RETURN(m_uavCoCTable, descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
-	m_uavDoFDownTables.resize(numLayers);
-	for (uint8_t i = 0; i < numLayers; ++i)
+	m_uavDoFDownTables.resize(m_numMipLevels);
+	for (uint8_t i = 0; i < m_numMipLevels; ++i)
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 		const Descriptor descriptors[] =
 		{
-			m_sources[i]->GetUAV(),
-			m_circleOfConfs[i]->GetUAV()
+			m_source->GetUAV(i),
+			m_circleOfConf->GetUAV(i)
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_uavDoFDownTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
-	m_uavDoFUpTables.resize(numLayers);
-	for (uint8_t i = 0; i < numLayers; ++i)
+	m_uavDoFUpTables.resize(m_numMipLevels);
+	for (uint8_t i = 0; i < m_numMipLevels; ++i)
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 		const Descriptor descriptors[] =
 		{
-			m_filteredImages[i]->GetUAV(),
-			m_filteredCoCs[i]->GetUAV()
+			m_filteredImage->GetUAV(i),
+			m_filteredCoC->GetUAV(i)
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_uavDoFUpTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
-	m_srvDoFTables.resize(numLayers);
-	for (uint8_t i = 0; i < numLayers; ++i)
+	m_srvDoFTables.resize(m_numMipLevels);
+	for (uint8_t i = 0; i < m_numMipLevels; ++i)
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 		const Descriptor descriptors[] =
 		{
-			m_sources[i]->GetSRV(),
-			m_circleOfConfs[i]->GetSRV()
+			m_source->GetSRVLevel(i),
+			m_circleOfConf->GetSRVLevel(i)
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_srvDoFTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
-	m_srvDoFUpTables.resize(numLayers);
-	for (uint8_t i = 0; i < numLayers; ++i)
+	m_srvDoFUpTables.resize(m_numMipLevels);
+	for (uint8_t i = 0; i < m_numMipLevels; ++i)
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 		const Descriptor descriptors[] =
 		{
-			i + 1 < numLayers ? m_filteredImages[i]->GetSRV() : m_sources[i]->GetSRV(),
-			i + 1 < numLayers ? m_filteredCoCs[i]->GetSRV() : m_circleOfConfs[i]->GetSRV()
+			i + 1 < m_numMipLevels ? m_filteredImage->GetSRVLevel(i) : m_source->GetSRVLevel(i),
+			i + 1 < m_numMipLevels ? m_filteredCoC->GetSRVLevel(i) : m_circleOfConf->GetSRVLevel(i)
 			//m_circleOfConfs[i]->GetSRV()
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
@@ -489,7 +471,7 @@ bool PostprocessX::createDescriptorTables()
 
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-		const Descriptor descriptors[] = { m_postImage->GetSRV(), m_avgLum->GetSRV(), m_circleOfConfs[0]->GetSRV() };
+		const Descriptor descriptors[] = { m_postImage->GetSRV(), m_avgLum->GetSRV(), m_circleOfConf->GetSRV() };
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_uavSrvTables[SRV_COLOR_AVG_LUM], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
@@ -506,8 +488,8 @@ void PostprocessX::circleOfConfusion(CommandList* pCommandList)
 		return s * s * s * s * s;
 	};
 
-	const auto width = static_cast<uint32_t>(m_circleOfConfs[0]->GetWidth());
-	const auto height = m_circleOfConfs[0]->GetHeight();
+	const auto width = static_cast<uint32_t>(m_circleOfConf->GetWidth());
+	const auto height = m_circleOfConf->GetHeight();
 
 	// Update camera DoF parameters
 	CBCamCoCParams camCoCParams;
@@ -526,7 +508,7 @@ void PostprocessX::circleOfConfusion(CommandList* pCommandList)
 	}
 
 	ResourceBarrier barriers[2];
-	auto numBarriers = m_circleOfConfs[0]->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS);
+	auto numBarriers = m_circleOfConf->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS);
 	numBarriers = m_pDepth->SetBarrier(barriers, ResourceState::ALL_SHADER_RESOURCE, numBarriers);
 	pCommandList->Barrier(numBarriers, barriers);
 
@@ -544,46 +526,52 @@ void PostprocessX::bilateralDown(CommandList* pCommandList, Texture* pSource)
 {
 	pCommandList->SetComputePipelineLayout(m_exPipelineLayouts[BILATERAL_DOF_DOWN]);
 	pCommandList->SetPipelineState(m_exPipelines[BILATERAL_DOF_DOWN]);
-	const auto& numLayers = m_numLayers;
+
+	const auto width = static_cast<uint32_t>(m_source->GetWidth());
+	const auto height = m_source->GetHeight();
 
 	ResourceBarrier barriers[3];
-	for (uint8_t i = 1; i < numLayers; ++i)
+	for (uint8_t i = 1; i < m_numMipLevels; ++i)
 	{
-		auto numBarriers = m_sources[i]->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS);
-		numBarriers = m_sources[i - 1]->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE, numBarriers);
-		numBarriers = m_circleOfConfs[i - 1]->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE, numBarriers);
+		const uint8_t f = i - 1;
+		auto numBarriers = m_source->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS, 0, i);
+		numBarriers = m_source->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE, numBarriers, f);
+		numBarriers = m_circleOfConf->SetBarrier(barriers, ResourceState::ALL_SHADER_RESOURCE, numBarriers, f);
 		pCommandList->Barrier(numBarriers, barriers);
 
 		pCommandList->SetComputeDescriptorTable(0, m_uavDoFDownTables[i]);
-		pCommandList->SetComputeDescriptorTable(1, m_srvDoFTables[i - 1]);
+		pCommandList->SetComputeDescriptorTable(1, m_srvDoFTables[f]);
 		pCommandList->SetCompute32BitConstant(2, i);
 
 		// Dispatch grid
-		const auto threadsX = static_cast<uint32_t>(m_sources[i]->GetWidth());
-		const auto threadsY = m_sources[i]->GetHeight();
+		const auto threadsX = (max)(width >> i, 1u);
+		const auto threadsY = (max)(height >> i, 1u);
 		pCommandList->Dispatch(XUSG_DIV_UP(threadsX, 8), XUSG_DIV_UP(threadsY, 8), 1);
 	}
 }
 
 void PostprocessX::bilateralUp(CommandList* pCommandList)
 {
-	const auto& numLayers = m_numLayers;
+	const uint8_t numPasses = m_numMipLevels - 1;
 
 	ResourceBarrier barriers[4];
-	auto numBarriers = m_sources[numLayers - 1]->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE);
-	numBarriers = m_circleOfConfs[numLayers - 1]->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE, numBarriers);
+	auto numBarriers = m_source->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE, 0, numPasses);
+	numBarriers = m_circleOfConf->SetBarrier(barriers, ResourceState::ALL_SHADER_RESOURCE, numBarriers, numPasses);
 
 	pCommandList->SetComputePipelineLayout(m_exPipelineLayouts[BILATERAL_DOF_UP]);
 	pCommandList->SetPipelineState(m_exPipelines[BILATERAL_DOF_UP]);
 
-	const uint8_t numPasses = numLayers - 1;
+	const auto width = static_cast<uint32_t>(m_filteredImage->GetWidth());
+	const auto height = m_filteredImage->GetHeight();
+
 	for (uint8_t i = 0; i < numPasses; ++i)
 	{
 		const auto c = numPasses - i;
 		const auto l = c - 1;
 
-		numBarriers = m_filteredImages[l]->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS, numBarriers);
-		numBarriers = m_filteredImages[c]->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE | ResourceState::COPY_SOURCE, numBarriers);
+		numBarriers = m_filteredImage->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS, numBarriers, l);
+		numBarriers = m_filteredImage->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE |
+			ResourceState::COPY_SOURCE, numBarriers, c);
 		pCommandList->Barrier(numBarriers, barriers);
 
 		pCommandList->SetComputeDescriptorTable(0, m_uavDoFUpTables[l]);
@@ -593,8 +581,8 @@ void PostprocessX::bilateralUp(CommandList* pCommandList)
 		pCommandList->SetCompute32BitConstant(4, l);
 
 		// Dispatch grid
-		const auto threadsX = static_cast<uint32_t>(m_filteredImages[l]->GetWidth());
-		const auto threadsY = m_filteredImages[l]->GetHeight();
+		const auto threadsX = (max)(width >> l, 1u);
+		const auto threadsY = (max)(height >> l, 1u);
 		pCommandList->Dispatch(XUSG_DIV_UP(threadsX, 8), XUSG_DIV_UP(threadsY, 8), 1);
 		numBarriers = 0;
 	}
@@ -604,7 +592,7 @@ void PostprocessX::toneMappedBlit(CommandList* pCommandList, Texture* pDst, Text
 	const DescriptorTable& uavTable, const DescriptorTable& srvTable, bool inverse)
 {
 	ResourceBarrier barriers[2];
-	auto numBarriers = pDst->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS);
+	auto numBarriers = pDst->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS, 0, 0);
 	numBarriers = pSrc->SetBarrier(barriers, ResourceState::NON_PIXEL_SHADER_RESOURCE, numBarriers, 0);
 	pCommandList->Barrier(numBarriers, barriers);
 

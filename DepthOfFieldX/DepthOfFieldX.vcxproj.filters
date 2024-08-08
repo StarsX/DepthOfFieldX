@@ -172,12 +172,6 @@
     <FxCompile Include="Shaders\CSITMBlit.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
-    <FxCompile Include="Shaders\CSBilateralDown3x3.hlsl">
-      <Filter>Shaders</Filter>
-    </FxCompile>
-    <FxCompile Include="Shaders\CSBilateralUp3x3.hlsl">
-      <Filter>Shaders</Filter>
-    </FxCompile>
     <FxCompile Include="Shaders\PSToneMap.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
