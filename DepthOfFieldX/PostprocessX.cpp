@@ -50,7 +50,7 @@ bool PostprocessX::ChangeWindowSize(const Device* pDevice, const Texture* pRefer
 	// Create resources and pipelines
 	const auto width = static_cast<uint32_t>(pReference->GetWidth());
 	const auto height = pReference->GetHeight();
-	m_numMipLevels = CalculateMipLevels(width, height);
+	m_numMipLevels = Texture::CalculateMipLevels(width, height);
 
 	m_circleOfConf = Texture::MakeUnique();
 	XUSG_N_RETURN(m_circleOfConf->Create(pDevice, width, height, Format::R32_FLOAT, 1,
@@ -445,8 +445,8 @@ bool PostprocessX::createDescriptorTables()
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 		const Descriptor descriptors[] =
 		{
-			m_source->GetSRVLevel(i),
-			m_circleOfConf->GetSRVLevel(i)
+			m_source->GetSRV(i, true),
+			m_circleOfConf->GetSRV(i, true)
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_srvDoFTables[i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
@@ -458,8 +458,8 @@ bool PostprocessX::createDescriptorTables()
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 		const Descriptor descriptors[] =
 		{
-			i + 1 < m_numMipLevels ? m_filteredImage->GetSRVLevel(i) : m_source->GetSRVLevel(i),
-			i + 1 < m_numMipLevels ? m_filteredCoC->GetSRVLevel(i) : m_circleOfConf->GetSRVLevel(i)
+			i + 1 < m_numMipLevels ? m_filteredImage->GetSRV(i, true) : m_source->GetSRV(i, true),
+			i + 1 < m_numMipLevels ? m_filteredCoC->GetSRV(i, true) : m_circleOfConf->GetSRV(i, true)
 			//m_circleOfConfs[i]->GetSRV()
 		};
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
@@ -473,7 +473,7 @@ bool PostprocessX::createDescriptorTables()
 		XUSG_X_RETURN(m_uavSrvTables[SRV_COLOR_AVG_LUM], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
-	return true;;
+	return true;
 }
 
 void PostprocessX::circleOfConfusion(CommandList* pCommandList)

@@ -273,7 +273,7 @@ bool Postprocess_Impl::createGBuffers(const Device* pDevice, const Texture* pRef
 	for (uint8_t i = 1; i < numLogLumMips; ++i)
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-		descriptorTable->SetDescriptors(0, 1, &m_logLum->GetSRVLevel(i - 1));
+		descriptorTable->SetDescriptors(0, 1, &m_logLum->GetSRV(i - 1, true));
 		XUSG_X_RETURN(m_uavSrvTables[SRV_LOG_LUM + i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
 
