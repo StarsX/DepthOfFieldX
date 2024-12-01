@@ -27,7 +27,7 @@ using namespace DirectX;
 class DepthOfFieldX : public DXFramework
 {
 public:
-	DepthOfFieldX(uint32_t width, uint32_t height, std::wstring name);
+	DepthOfFieldX(uint32_t width, uint32_t height, const std::wstring& name);
 	virtual ~DepthOfFieldX();
 
 	virtual void OnInit();
@@ -47,25 +47,19 @@ public:
 	virtual void ParseCommandLineArgs(wchar_t* argv[], int argc);
 
 private:
-	enum RenderQueueType
+	enum DeviceType : uint8_t
 	{
-		OPAQUE_QUEUE,
-		ALPHA_QUEUE,
-
-		NUM_RENDER_QUEUE
+		DEVICE_DISCRETE,
+		DEVICE_UMA,
+		DEVICE_WARP
 	};
-
-	static const auto Api = XUSG::API::DIRECTX_12;
-	static const auto FrameCount = XUSG::Model::GetFrameCount();
 
 	enum SrvTableIndex : uint8_t
 	{
 		SRV_AA_INPUT,
-		SRV_AA_INPUT1,
-		SRV_ANTIALIASED,
-		SRV_ANTIALIASED1,
+		SRV_HDR_IMAGE = SRV_AA_INPUT + 2,
 
-		NUM_SRV
+		NUM_SRV = SRV_HDR_IMAGE + 2
 	};
 
 	enum UavTableIndex : uint8_t
@@ -76,6 +70,9 @@ private:
 
 		NUM_UAV
 	};
+
+	static const auto Api = XUSG::API::DIRECTX_12;
+	static const auto FrameCount = XUSG::Model::GetFrameCount();
 
 	XUSG::com_ptr<IDXGIFactory5> m_factory;
 
@@ -103,7 +100,7 @@ private:
 	XUSG::RenderTarget::uptr	m_temporalColors[2];
 	XUSG::RenderTarget::uptr	m_metaBuffers[2];
 	XUSG::RenderTarget::sptr	m_sceneColor;
-	XUSG::RenderTarget::sptr	m_sceneMasks;
+	XUSG::RenderTarget::sptr	m_sceneShade;
 	XUSG::DepthStencil::sptr	m_sceneDepth;
 	XUSG::DescriptorTable		m_srvTables[NUM_SRV];
 	XUSG::DescriptorTable		m_uavTables[NUM_UAV];
@@ -119,10 +116,11 @@ private:
 	uint64_t			m_fenceValues[FrameCount];
 
 	// Application state
-	bool		m_useIBL;
-	bool		m_isPaused;
-	bool		m_useWarpDevice;
+	DeviceType	m_deviceType;
 	StepTimer	m_timer;
+	bool		m_useIBL;
+	bool		m_showFPS;
+	bool		m_isPaused;
 
 	// User camera interactions
 	bool		m_isTracking;

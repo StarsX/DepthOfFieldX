@@ -15,17 +15,28 @@
 using namespace std;
 using namespace XUSG;
 
-DepthOfFieldX::DepthOfFieldX(uint32_t width, uint32_t height, wstring name) :
+DepthOfFieldX::DepthOfFieldX(uint32_t width, uint32_t height, const wstring& name) :
 	DXFramework(width, height, name),
-	m_readBuffer(nullptr),
+	m_viewport(),
+	m_scissorRect(),
+	m_srvTables(),
+	m_proj(),
+	m_view(),
+	m_eyePt(),
 	m_frameParity(0),
 	m_frameIndex(0),
+	m_fenceEvent(nullptr),
 	m_fence(nullptr),
+	m_fenceValues(),
+	m_deviceType(DEVICE_DISCRETE),
 	m_useIBL(true),
+	m_showFPS(true),
 	m_isPaused(false),
-	m_useWarpDevice(false),
 	m_isTracking(false),
+	m_mousePt(),
 	m_sceneFile(L"Assets/Scene.json"),
+	m_readBuffer(nullptr),
+	m_rowPitch(0),
 	m_screenShot(0)
 {
 #if defined (_DEBUG)
@@ -77,21 +88,45 @@ void DepthOfFieldX::LoadPipeline()
 	DXGI_ADAPTER_DESC1 dxgiAdapterDesc;
 	com_ptr<IDXGIAdapter1> dxgiAdapter = nullptr;
 	com_ptr<ID3D12Device> device;
-	auto hr = DXGI_ERROR_UNSUPPORTED;
-	for (auto i = 0u; hr == DXGI_ERROR_UNSUPPORTED; ++i)
+	const auto useUMA = m_deviceType == DEVICE_UMA;
+	const auto useWARP = m_deviceType == DEVICE_WARP;
+	auto checkUMA = true, checkWARP = true;
+	auto hr = DXGI_ERROR_NOT_FOUND;
+	for (uint8_t n = 0; n < 3; ++n)
 	{
-		dxgiAdapter = nullptr;
-		ThrowIfFailed(m_factory->EnumAdapters1(i, &dxgiAdapter));
+		if (FAILED(hr)) hr = DXGI_ERROR_UNSUPPORTED;
+		for (auto i = 0u; hr == DXGI_ERROR_UNSUPPORTED; ++i)
+		{
+			dxgiAdapter = nullptr;
+			hr = m_factory->EnumAdapters1(i, &dxgiAdapter);
 
-		dxgiAdapter->GetDesc1(&dxgiAdapterDesc);
-		if (m_useWarpDevice && dxgiAdapterDesc.DeviceId != 0x8c) continue;
+			if (SUCCEEDED(hr) && dxgiAdapter)
+			{
+				dxgiAdapter->GetDesc1(&dxgiAdapterDesc);
+				if (checkWARP) hr = dxgiAdapterDesc.VendorId == 0x1414 && dxgiAdapterDesc.DeviceId == 0x8c ?
+					(useWARP ? hr : DXGI_ERROR_UNSUPPORTED) : (useWARP ? DXGI_ERROR_UNSUPPORTED : hr);
+			}
 
-		m_device = Device::MakeUnique(Api);
-		hr = m_device->Create(dxgiAdapter.get(), D3D_FEATURE_LEVEL_11_0);
+			if (SUCCEEDED(hr))
+			{
+				m_device = Device::MakeUnique(Api);
+				if (SUCCEEDED(m_device->Create(dxgiAdapter.get(), D3D_FEATURE_LEVEL_11_0)) && checkUMA)
+				{
+					D3D12_FEATURE_DATA_ARCHITECTURE feature = {};
+					const auto pDevice = static_cast<ID3D12Device*>(m_device->GetHandle());
+					if (SUCCEEDED(pDevice->CheckFeatureSupport(D3D12_FEATURE_ARCHITECTURE, &feature, sizeof(feature))))
+						hr = feature.UMA ? (useUMA ? hr : DXGI_ERROR_UNSUPPORTED) : (useUMA ? DXGI_ERROR_UNSUPPORTED : hr);
+				}
+			}
+		}
+
+		checkUMA = false;
+		if (n) checkWARP = false;
 	}
 
-	if (dxgiAdapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
-		m_title += dxgiAdapterDesc.VendorId == 0x1414 && dxgiAdapterDesc.DeviceId == 0x8c ? L" (WARP)" : L" (Software)";
+	if (dxgiAdapterDesc.VendorId == 0x1414 && dxgiAdapterDesc.DeviceId == 0x8c) m_title += L" (WARP)";
+	else if (dxgiAdapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) m_title += L" (Software)";
+	else m_title += wstring(L" - ") + dxgiAdapterDesc.Description;
 	ThrowIfFailed(hr);
 
 	// Create the command queue.
@@ -153,7 +188,6 @@ void DepthOfFieldX::LoadAssets()
 	}
 
 	{
-		//m_postprocess = PostprocessX::MakeUnique(Api);
 		m_postprocess = make_unique<PostprocessX>(Api);
 		XUSG_N_RETURN(m_postprocess->Init(m_device.get(), m_shaderLib, m_graphicsPipelineLib,
 			m_computePipelineLib, m_pipelineLayoutLib, m_descriptorTableLib,
@@ -202,7 +236,7 @@ void DepthOfFieldX::LoadAssets()
 		const auto viewDist = XMVectorGetW(focusDist);
 		const auto viewDisp = XMVectorSet(0.0f, 0.0f, viewDist, 0.0f);
 		const auto eyePt = focusDist - viewDisp;
-		const auto view = XMMatrixLookAtLH(eyePt, focusDist, XMVectorSet(0.0f, 1.0f, 0.0f, 1.0f));
+		const auto view = XMMatrixLookAtLH(eyePt, focusDist, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
 		XMStoreFloat3(&m_eyePt, eyePt);
 		XMStoreFloat4x4(&m_view, view);
 	}
@@ -230,7 +264,7 @@ void DepthOfFieldX::CreateResources()
 	}
 
 	// Create TAA RTs
-	for (auto n = 0u; n < 2; ++n)
+	for (uint8_t n = 0; n < 2; ++n)
 	{
 		m_temporalColors[n] = RenderTarget::MakeUnique(Api);
 		XUSG_N_RETURN(m_temporalColors[n]->Create(m_device.get(), m_width, m_height, FormatHDR, 1, ResourceFlag::ALLOW_UNORDERED_ACCESS,
@@ -246,10 +280,10 @@ void DepthOfFieldX::CreateResources()
 	XUSG_N_RETURN(m_sceneColor->Create(m_device.get(), m_width, m_height, FormatHDR, 1, ResourceFlag::ALLOW_UNORDERED_ACCESS,
 		1, 1, nullptr, false, MemoryFlag::NONE, L"SceneColor"), ThrowIfFailed(E_FAIL));
 
-	// Create Mask RT
-	m_sceneMasks = RenderTarget::MakeShared(Api);
-	XUSG_N_RETURN(m_sceneMasks->Create(m_device.get(), m_width, m_height, Format::R8_UNORM, 1, ResourceFlag::NONE,
-		1, 1, nullptr, false, MemoryFlag::NONE, L"SceneMasks"), ThrowIfFailed(E_FAIL));
+	// Create shade-amount RT
+	m_sceneShade = RenderTarget::MakeShared(Api);
+	XUSG_N_RETURN(m_sceneShade->Create(m_device.get(), m_width, m_height, Format::R8_UNORM, 1, ResourceFlag::NONE,
+		1, 1, nullptr, false, MemoryFlag::NONE, L"SceneShadeAmount"), ThrowIfFailed(E_FAIL));
 
 	// Create a DSV
 	m_sceneDepth = DepthStencil::MakeShared(Api);
@@ -272,23 +306,23 @@ void DepthOfFieldX::ResizeAssets()
 	// Scene
 	vector<Resource::uptr> uploaders;
 	XUSG_N_RETURN(m_scene->ChangeWindowSize(pCommandList, uploaders,
-		m_sceneColor, m_sceneDepth, m_sceneMasks), ThrowIfFailed(E_FAIL));
+		m_sceneColor, m_sceneDepth, m_sceneShade), ThrowIfFailed(E_FAIL));
 
 	// Post process
 	{
 		XUSG_N_RETURN(m_postprocess->ChangeWindowSize(m_device.get(), m_sceneColor.get()), ThrowIfFailed(E_FAIL));
 
 		// Create Descriptor tables
-		for (auto n = 0u; n < 2; ++n)
+		for (uint8_t n = 0; n < 2; ++n)
 		{
 			XUSG_X_RETURN(m_srvTables[SRV_AA_INPUT + n], m_postprocess->CreateTAASrvTable(
 				m_sceneColor->GetSRV(), m_temporalColors[!n]->GetSRV(), m_scene->GetGBuffer(Scene::MOTION_IDX),
-				m_sceneMasks->GetSRV(), m_metaBuffers[!n]->GetSRV()), ThrowIfFailed(E_FAIL));
+				m_sceneShade->GetSRV(), m_metaBuffers[!n]->GetSRV()), ThrowIfFailed(E_FAIL));
 
 			const auto srvTable = Util::DescriptorTable::MakeUnique(Api);
 			const Descriptor srvs[] = { m_temporalColors[n]->GetSRV(), m_sceneDepth->GetSRV() };
 			srvTable->SetDescriptors(0, static_cast<uint32_t>(size(srvs)), srvs);
-			XUSG_X_RETURN(m_srvTables[SRV_ANTIALIASED + n], srvTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
+			XUSG_X_RETURN(m_srvTables[SRV_HDR_IMAGE + n], srvTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
 
 			const auto uavTable = Util::DescriptorTable::MakeUnique(Api);
 			const Descriptor uavs[] = { m_temporalColors[n]->GetUAV(), m_metaBuffers[n]->GetUAV() };
@@ -346,7 +380,7 @@ void DepthOfFieldX::OnUpdate()
 	const auto eyePt = XMLoadFloat3(&m_eyePt);
 	const auto view = XMLoadFloat4x4(&m_view);
 	const auto proj = XMLoadFloat4x4(&m_proj);
-	m_scene->Update(m_frameIndex, time, timeStep, view, proj, eyePt, true);
+	m_scene->Update(m_frameIndex, time, timeStep, view, proj, eyePt);
 	m_postprocess->Update(m_scene->GetCBVTable(Scene::CBV_IMMUTABLE),
 		m_scene->GetCBVTable(Scene::CBV_PER_FRAME_PS + m_frameIndex), timeStep);
 	m_postprocess->SetTime(time);
@@ -378,8 +412,6 @@ void DepthOfFieldX::OnDestroy()
 
 void DepthOfFieldX::OnWindowSizeChanged(int width, int height)
 {
-	if (height > 1080) return;
-
 	if (!Win32Application::GetHwnd())
 	{
 		throw std::exception("Call SetWindow with a valid Win32 window handle");
@@ -412,7 +444,8 @@ void DepthOfFieldX::OnWindowSizeChanged(int width, int height)
 		{
 #ifdef _DEBUG
 			char buff[64] = {};
-			sprintf_s(buff, "Device Lost on ResizeBuffers: Reason code 0x%08X\n", (hr == DXGI_ERROR_DEVICE_REMOVED) ? m_device->GetDeviceRemovedReason() : hr);
+			sprintf_s(buff, "Device Lost on ResizeBuffers: Reason code 0x%08X\n",
+				(hr == DXGI_ERROR_DEVICE_REMOVED) ? m_device->GetDeviceRemovedReason() : hr);
 			OutputDebugStringA(buff);
 #endif
 			// If the device was removed for any reason, a new device and swap chain will need to be created.
@@ -422,10 +455,7 @@ void DepthOfFieldX::OnWindowSizeChanged(int width, int height)
 			// and correctly set up the new device.
 			return;
 		}
-		else
-		{
-			ThrowIfFailed(hr);
-		}
+		else ThrowIfFailed(hr);
 	}
 	else CreateSwapchain();
 
@@ -451,6 +481,9 @@ void DepthOfFieldX::OnKeyUp(uint8_t key)
 	{
 	case VK_SPACE:
 		m_isPaused = !m_isPaused;
+		break;
+	case VK_F1:
+		m_showFPS = !m_showFPS;
 		break;
 	case VK_F11:
 		m_screenShot = 1;
@@ -525,7 +558,10 @@ void DepthOfFieldX::ParseCommandLineArgs(wchar_t* argv[], int argc)
 	{
 		if (wcsncmp(argv[i], L"-warp", wcslen(argv[i])) == 0 ||
 			wcsncmp(argv[i], L"/warp", wcslen(argv[i])) == 0)
-			m_useWarpDevice = true;
+			m_deviceType = DEVICE_WARP;
+		else if (wcsncmp(argv[i], L"-uma", wcslen(argv[i])) == 0 ||
+			wcsncmp(argv[i], L"/uma", wcslen(argv[i])) == 0)
+			m_deviceType = DEVICE_UMA;
 		else if ((wcsncmp(argv[i], L"-scene", wcslen(argv[i])) == 0 ||
 			wcsncmp(argv[i], L"/scene", wcslen(argv[i])) == 0) && i + 1 < argc)
 			m_sceneFile = argv[++i];
@@ -567,22 +603,22 @@ void DepthOfFieldX::PopulateCommandList()
 	// Render scene
 	//const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 	const auto pRenderTarget = m_renderTargets[m_frameIndex].get();
-	//pCommandList->ClearRenderTargetView(m_renderTargets[m_frameIndex]->GetRTV(), clearColor);
+	//pCommandList->ClearRenderTargetView(pRenderTarget->GetRTV(), clearColor);
 	m_scene->Render(pCommandList);
 
 	m_postprocess->DepthOfField(pCommandList, m_sceneColor.get(), m_uavTables[UAV_DOF_OUTPUT], m_srvTables[SRV_AA_INPUT]);
 
 	// Temporal AA
 	RenderTarget* ppDsts[] = { m_temporalColors[m_frameParity].get(), m_metaBuffers[m_frameParity].get() };
-	Texture* ppSrcs[] = { m_sceneColor.get(), m_sceneMasks.get(), m_metaBuffers[!m_frameParity].get() };
+	Texture* ppSrcs[] = { m_sceneColor.get(), m_sceneShade.get(), m_metaBuffers[!m_frameParity].get() };
 	//m_postprocess->Antialias(pCommandList, ppDsts, ppSrcs, m_srvTables[SRV_AA_INPUT + m_frameParity],
-		//static_cast<uint8_t>(size(ppDsts)), static_cast<uint8_t>(size(ppSrcs)));
+	//	static_cast<uint8_t>(size(ppDsts)), static_cast<uint8_t>(size(ppSrcs)));
 	m_postprocess->TemporalAA(pCommandList, ppDsts, ppSrcs, m_uavTables[UAV_AA_OUTPUT + m_frameParity],
 		m_srvTables[SRV_AA_INPUT + m_frameParity], static_cast<uint8_t>(size(ppDsts)), static_cast<uint8_t>(size(ppSrcs)));
 
 	// Postprocessing
 	m_postprocess->Render(pCommandList, pRenderTarget, m_temporalColors[m_frameParity].get(),
-		m_srvTables[SRV_ANTIALIASED + m_frameParity]);
+		m_srvTables[SRV_HDR_IMAGE + m_frameParity]);
 	m_frameParity = !m_frameParity;
 
 	// Indicate that the back buffer will now be used to present.
@@ -672,31 +708,32 @@ void DepthOfFieldX::SaveImage(char const* fileName, Buffer* pImageBuffer, uint32
 
 double DepthOfFieldX::CalculateFrameStats(float* pTimeStep)
 {
-	static int frameCnt = 0;
-	static double elapsedTime = 0.0;
-	static double previousTime = 0.0;
+	static auto frameCnt = 0u;
+	static auto previousTime = 0.0;
 	const auto totalTime = m_timer.GetTotalSeconds();
 	++frameCnt;
 
-	const auto timeStep = static_cast<float>(totalTime - elapsedTime);
+	const auto timeStep = totalTime - previousTime;
 
 	// Compute averages over one second period.
-	if ((totalTime - elapsedTime) >= 1.0f)
+	if (timeStep >= 1.0)
 	{
-		float fps = static_cast<float>(frameCnt) / timeStep;	// Normalize to an exact second.
+		const auto fps = static_cast<float>(frameCnt / timeStep);	// Normalize to an exact second.
 
 		frameCnt = 0;
-		elapsedTime = totalTime;
+		previousTime = totalTime;
 
 		wstringstream windowText;
-		windowText << setprecision(2) << fixed << L"    fps: " << fps;
-		windowText << L"    [F11] screen shot";
+		windowText << L"    [F1] ";
+		if (m_showFPS) windowText << setprecision(2) << fixed << L"fps: " << fps;
+		else windowText << L"show fps";
 
+		windowText << L"    [F11] screen shot";
+		
 		SetCustomWindowText(windowText.str().c_str());
 	}
 
-	if (pTimeStep)*pTimeStep = static_cast<float>(totalTime - previousTime);
-	previousTime = totalTime;
+	if (pTimeStep) *pTimeStep = static_cast<float>(m_timer.GetElapsedSeconds());
 
 	return totalTime;
 }
