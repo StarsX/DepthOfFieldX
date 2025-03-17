@@ -89,7 +89,7 @@
       <Command>COPY /Y "$(OutDir)*.exe" "$(ProjectDir)..\Bin\"
 COPY /Y "$(OutDir)*.cso" "$(ProjectDir)..\Bin\"
 COPY /Y "$(ProjectDir)XUSG\Bin\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
-
+COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
 </Command>
     </PostBuildEvent>
     <FxCompile>
@@ -116,7 +116,7 @@ COPY /Y "$(ProjectDir)XUSG\Bin\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
       <Command>COPY /Y "$(OutDir)*.exe" "$(ProjectDir)..\Bin\"
 COPY /Y "$(OutDir)*.cso" "$(ProjectDir)..\Bin\"
 COPY /Y "$(ProjectDir)XUSG\Bin\$(Platform)\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
-
+COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
 </Command>
     </PostBuildEvent>
     <FxCompile>
@@ -147,7 +147,7 @@ COPY /Y "$(ProjectDir)XUSG\Bin\$(Platform)\$(Configuration)\*.dll" "$(ProjectDir
       <Command>COPY /Y "$(OutDir)*.exe" "$(ProjectDir)..\Bin\"
 COPY /Y "$(OutDir)*.cso" "$(ProjectDir)..\Bin\"
 COPY /Y "$(ProjectDir)XUSG\Bin\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
-
+COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
 </Command>
     </PostBuildEvent>
     <FxCompile>
@@ -178,7 +178,7 @@ COPY /Y "$(ProjectDir)XUSG\Bin\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
       <Command>COPY /Y "$(OutDir)*.exe" "$(ProjectDir)..\Bin\"
 COPY /Y "$(OutDir)*.cso" "$(ProjectDir)..\Bin\"
 COPY /Y "$(ProjectDir)XUSG\Bin\$(Platform)\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
-
+COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
 </Command>
     </PostBuildEvent>
     <FxCompile>
