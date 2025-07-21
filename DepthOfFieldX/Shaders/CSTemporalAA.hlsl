@@ -2,7 +2,7 @@
 // Copyright (c) XU, Tianchen. All rights reserved.
 //--------------------------------------------------------------------------------------
 
-//#include "Common.hlsli"
+#include "Common.hlsli"
 
 //--------------------------------------------------------------------------------------
 // Definitions
@@ -55,7 +55,7 @@ cbuffer cbImmutable	: register (b0)
 };
 
 static const uint g_historyBits = 4;
-static const uint g_historyMask = (1 << g_historyBits) - 1;
+static const uint g_historyMask = (1u << g_historyBits) - 1;
 static const float g_historyMax = g_historyMask;
 static const float g_channelMax = (1 << 8) - 1.0;
 
@@ -225,14 +225,16 @@ float DecodeHistory(inout float history)
 min16float4 VelocityMax(int2 pos)
 {
 	const float2 velocity = g_txVelocity[pos];
-
 	float2 velocities[NUM_NEIGHBORS_H];
+	uint i;
+
 	[unroll]
-	for (uint i = 0; i < NUM_NEIGHBORS_H; ++i)
+	for (i = 0; i < NUM_NEIGHBORS_H; ++i)
 		velocities[i] = g_txVelocity[pos + g_texOffsets[i + NUM_NEIGHBORS_H]];
 
 	min16float4 velocityMax = min16float2(velocity).xyxy;
 	min16float speed_sq = dot(velocityMax.xy, velocityMax.xy);
+
 	//[unroll]
 	for (i = 0; i < NUM_NEIGHBORS_H; ++i)
 	{
@@ -258,8 +260,10 @@ min16float4 VelocityMax(int2 pos)
 float2 HistoryShadeAmount(inout float history, float2 uv)
 {
 	float histories[NUM_NEIGHBORS_H];
+	uint i;
+
 	[unroll]
-	for (uint i = 0; i < NUM_NEIGHBORS_H; ++i)
+	for (i = 0; i < NUM_NEIGHBORS_H; ++i)
 		histories[i] = GetHistoricMetadata(uv, g_texOffsets[i]);
 
 	const float shadeAmt = DecodeHistory(history);
@@ -290,8 +294,10 @@ min16float4 NeighborMinMax(out min16float4 neighborMin, out min16float4 neighbor
 	};
 
 	float4 neighbors[NUM_NEIGHBORS];
+	uint i;
+
 	[unroll]
-	for (uint i = 0; i < NUM_NEIGHBORS; ++i)
+	for (i = 0; i < NUM_NEIGHBORS; ++i)
 		neighbors[i] = GetCurrent(pos + g_texOffsets[i]);
 
 	min16float3 mu = current.xyz;
@@ -369,7 +375,7 @@ min16float3 clipColor(min16float3 color, min16float3 minColor, min16float3 maxCo
 min16float historyClamp(min16float3 history, min16float3 filtered, min16float3 nMin, min16float3 nMax)
 {
 	min16float3 rayDir = filtered - history;
-	rayDir = abs(rayDir) < (1.0 / 65536.0) ? (1.0 / 65536.0) : rayDir;
+	rayDir = select(abs(rayDir) < (1.0 / 65536.0), (1.0 / 65536.0), rayDir);
 	const min16float3 invRayDir = rcp(rayDir);
 
 	const min16float3 minIntersect = (nMin - history) * invRayDir;
