@@ -127,8 +127,8 @@ void PostprocessX::DepthOfField(XUSG::CommandList* pCommandList, Texture* pScene
 #endif
 }
 
-void PostprocessX::TemporalAA(CommandList* pCommandList, RenderTarget** ppDsts, Texture** ppSrcs,
-	const DescriptorTable& uavTable, const DescriptorTable& srvTable, uint8_t numUAVs, uint8_t numSRVs)
+void PostprocessX::TemporalAA(CommandList* pCommandList, uint8_t numUAVs, Texture** ppDsts,
+	const DescriptorTable& uavTable, uint8_t numSRVs, Texture** ppSrcs, const DescriptorTable& srvTable)
 {
 	// Set barriers
 	vector<ResourceBarrier> barriers(numUAVs + numSRVs + 1);

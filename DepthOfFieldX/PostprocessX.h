@@ -37,8 +37,9 @@ public:
 	void SetTime(double time);
 	void DepthOfField(XUSG::CommandList* pCommandList, XUSG::Texture* pSceneColor,
 		const XUSG::DescriptorTable& uavTable, const XUSG::DescriptorTable& srvTable);
-	void TemporalAA(XUSG::CommandList* pCommandList, XUSG::RenderTarget** ppDsts, XUSG::Texture** ppSrcs,
-		const XUSG::DescriptorTable& uavTable, const XUSG::DescriptorTable& srvTable, uint8_t numUAVs, uint8_t numSRVs);
+	void TemporalAA(XUSG::CommandList* pCommandList, uint8_t numUAVs, XUSG::Texture** ppDsts,
+		const XUSG::DescriptorTable& uavTable, uint8_t numSRVs, XUSG::Texture** ppSrcs,
+		const XUSG::DescriptorTable& srvTable);
 
 	XUSG::DescriptorTable CreateTAASrvTable(const XUSG::Descriptor& srvCurrent, const XUSG::Descriptor& srvPrevious,
 		const XUSG::Texture* pVelocity, const XUSG::Descriptor& srvShadeAmt, const XUSG::Descriptor& srvMeta);

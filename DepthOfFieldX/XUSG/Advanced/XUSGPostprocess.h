@@ -24,16 +24,16 @@ namespace XUSG
 		bool ChangeWindowSize(const Device* pDevice, const Texture* pReference);
 
 		void Update(const DescriptorTable& cbvImmutable, const DescriptorTable& cbvPerFrameTable,
-			float timeStep);
+			uint8_t frameIndex, float timeStep);
 		void Render(CommandList* pCommandList, RenderTarget* pDst, Texture* pSrc,
 			const DescriptorTable& srvTable, bool clearRT = false);
 		void ScreenRender(const CommandList* pCommandList, PipelineIndex pipelineIndex,
 			const DescriptorTable& srvTable, bool hasImmutableCB, bool hasPerFrameCB);
 		void LumAdaption(const CommandList* pCommandList, const DescriptorTable& uavSrvTable);
-		void Antialias(CommandList* pCommandList, RenderTarget** ppDsts, Texture** ppSrcs,
-			const DescriptorTable& srvTable, uint8_t numRTVs, uint8_t numSRVs);
-		void Unsharp(const CommandList* pCommandList, const Descriptor* pRTVs,
-			const DescriptorTable& srvTable, uint8_t numRTVs = 1);
+		void Antialias(CommandList* pCommandList, uint8_t numRTVs, RenderTarget** ppDsts,
+			uint8_t numSRVs, Texture** ppSrcs, const DescriptorTable& srvTable);
+		void Unsharp(const CommandList* pCommandList, uint8_t numRTVs,
+			const Descriptor* pRTVs, const DescriptorTable& srvTable);
 
 		DescriptorTable CreateTAASrvTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,
 			const Descriptor& srvVelocity, const Descriptor& srvShadeAmt, const Descriptor& srvMeta);
@@ -93,7 +93,6 @@ namespace XUSG
 
 		ConstantBuffer::uptr m_cbTimeStep;
 
-		Framebuffer			m_framebuffer;
 		DescriptorTable		m_cbvTables[NUM_CBV_TABLE];
 		std::vector<DescriptorTable> m_uavSrvTables;
 	};

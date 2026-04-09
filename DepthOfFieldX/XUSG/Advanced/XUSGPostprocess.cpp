@@ -41,7 +41,6 @@ Postprocess_Impl::Postprocess_Impl(API api) :
 	m_descriptorTableLib(nullptr),
 	m_pipelineLayouts(),
 	m_pipelines(),
-	m_framebuffer(),
 	m_cbvTables()
 {
 }
@@ -90,11 +89,12 @@ bool Postprocess_Impl::ChangeWindowSize(const Device* pDevice, const Texture* pR
 }
 
 void Postprocess_Impl::Update(const DescriptorTable& cbvImmutable, const DescriptorTable& cbvPerFrameTable,
-	float timeStep)
+	uint8_t frameIndex, float timeStep)
 {
 	m_cbvTables[CBV_IMMUTABLE] = cbvImmutable;
 	m_cbvTables[CBV_PER_FRAME] = cbvPerFrameTable;
 
+	m_frameIndex = frameIndex;
 	m_timeStep = timeStep > -2.0f ? timeStep : -1.0f;
 }
 
@@ -107,7 +107,15 @@ void Postprocess_Impl::Render(CommandList* pCommandList, RenderTarget* pDst, Tex
 	numBarriers = m_postImage->SetBarrier(barriers, ResourceState::RENDER_TARGET, numBarriers);
 	numBarriers = m_logLum->SetBarrier(barriers, ResourceState::RENDER_TARGET, numBarriers);
 	pCommandList->Barrier(numBarriers, barriers);
-	pCommandList->OMSetFramebuffer(m_framebuffer);
+
+	// Set render targets
+	const Descriptor rtvs[] =
+	{
+		m_postImage->GetRTV(),
+		m_logLum->GetRTV()
+	};
+	pCommandList->OMSetRenderTargets(static_cast<uint32_t>(size(rtvs)), rtvs);
+
 	if (clearRT)
 	{
 		const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
@@ -122,7 +130,7 @@ void Postprocess_Impl::Render(CommandList* pCommandList, RenderTarget* pDst, Tex
 	numBarriers = m_avgLum->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS,
 		0, XUSG_BARRIER_ALL_SUBRESOURCES, BarrierFlag::NONE, ResourceState::COMMON);
 	numBarriers = m_logLum->GenerateMips(pCommandList, barriers, ResourceState::ALL_SHADER_RESOURCE,
-		m_pipelineLayouts[RESAMPLE_LUM], m_pipelines[RESAMPLE_LUM],
+		m_pipelineLayouts[BLIT_LOG_LUM], m_pipelines[BLIT_LOG_LUM],
 		&m_uavSrvTables[SRV_LOG_LUM + 1], TEXTURES, XUSG_NULL, 0, numBarriers);
 	pCommandList->Barrier(numBarriers, barriers);
 
@@ -173,7 +181,7 @@ void Postprocess_Impl::LumAdaption(const CommandList* pCommandList, const Descri
 	// Set pipeline layout and descriptor tables
 	pCommandList->SetComputePipelineLayout(m_pipelineLayouts[LUM_ADAPT]);
 	pCommandList->SetComputeDescriptorTable(TEXTURES, uavSrvTable);
-	pCommandList->SetComputeDescriptorTable(TIME_STEP, m_cbvTables[CBV_TIME_STEP]);
+	pCommandList->SetComputeDescriptorTable(TIME_STEP, m_cbvTables[CBV_TIME_STEP + m_frameIndex]);
 
 	// Set pipeline
 	pCommandList->SetPipelineState(m_pipelines[LUM_ADAPT]);
@@ -182,8 +190,8 @@ void Postprocess_Impl::LumAdaption(const CommandList* pCommandList, const Descri
 	pCommandList->Dispatch(1, 1, 1);
 }
 
-void Postprocess_Impl::Antialias(CommandList* pCommandList, RenderTarget** ppDsts, Texture** ppSrcs,
-	const DescriptorTable& srvTable, uint8_t numRTVs, uint8_t numSRVs)
+void Postprocess_Impl::Antialias(CommandList* pCommandList, uint8_t numRTVs, RenderTarget** ppDsts,
+	uint8_t numSRVs, Texture** ppSrcs, const DescriptorTable& srvTable)
 {
 	// Set barriers
 	vector<ResourceBarrier> barriers(numRTVs + numSRVs);
@@ -195,15 +203,15 @@ void Postprocess_Impl::Antialias(CommandList* pCommandList, RenderTarget** ppDst
 	pCommandList->Barrier(numBarriers, barriers.data());
 
 	// Set render targets
-	vector<Descriptor> pRTVs(numRTVs);
-	for (uint8_t i = 0; i < numRTVs; ++i) pRTVs[i] = ppDsts[i]->GetRTV();
-	pCommandList->OMSetRenderTargets(numRTVs, pRTVs.data());
+	vector<Descriptor> rtvs(numRTVs);
+	for (uint8_t i = 0; i < numRTVs; ++i) rtvs[i] = ppDsts[i]->GetRTV();
+	pCommandList->OMSetRenderTargets(numRTVs, rtvs.data());
 
 	ScreenRender(pCommandList, ANTIALIAS, srvTable, true, false);
 }
 
-void Postprocess_Impl::Unsharp(const CommandList* pCommandList, const Descriptor* pRTVs,
-	const DescriptorTable& srvTable, uint8_t numRTVs)
+void Postprocess_Impl::Unsharp(const CommandList* pCommandList, uint8_t numRTVs,
+	const Descriptor* pRTVs, const DescriptorTable& srvTable)
 {
 	// Set render target
 	pCommandList->OMSetRenderTargets(numRTVs, pRTVs);
@@ -265,7 +273,7 @@ bool Postprocess_Impl::createGBuffers(const Device* pDevice, const Texture* pRef
 
 	{
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-		const Descriptor descriptors[] = { m_avgLum->GetUAV(), m_logLum->GetSRV() };
+		const Descriptor descriptors[] = { m_avgLum->GetUAV(), m_logLum->GetSRV(numLogLumMips - 1) };
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_uavSrvTables[UAV_SRV_LUM], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
@@ -275,18 +283,6 @@ bool Postprocess_Impl::createGBuffers(const Device* pDevice, const Texture* pRef
 		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
 		descriptorTable->SetDescriptors(0, 1, &m_logLum->GetSRV(i - 1, true));
 		XUSG_X_RETURN(m_uavSrvTables[SRV_LOG_LUM + i], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
-	}
-
-	// Create framebuffer
-	{
-		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
-		const Descriptor descriptors[] =
-		{
-			m_postImage->GetRTV(),
-			m_logLum->GetRTV()
-		};
-		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
-		m_framebuffer = descriptorTable->GetFramebuffer(m_descriptorTableLib.get());
 	}
 
 	return true;
@@ -400,7 +396,7 @@ bool Postprocess_Impl::createPipelineLayouts()
 			PipelineLayoutFlag::NONE, L"PostEffectsLayout"), false);
 	}
 
-	// Resample
+	// Blit for log luminance MIP-map generation
 	{
 		auto txSource = 0u;
 		auto smpLinearClamp = 0u;
@@ -430,8 +426,8 @@ bool Postprocess_Impl::createPipelineLayouts()
 		// Samplers
 		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, smpLinearClamp, 0, Shader::Stage::PS);
 
-		XUSG_X_RETURN(m_pipelineLayouts[RESAMPLE_LUM], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
-			PipelineLayoutFlag::NONE, L"ResampleLayout"), false);
+		XUSG_X_RETURN(m_pipelineLayouts[BLIT_LOG_LUM], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
+			PipelineLayoutFlag::NONE, L"BlitLogLuminanceLayout"), false);
 	}
 
 	// Luminance adaptation
@@ -465,7 +461,8 @@ bool Postprocess_Impl::createPipelineLayouts()
 		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
 
 		// Constant buffers
-		utilPipelineLayout->SetRange(TIME_STEP, DescriptorType::CBV, 1, cbPerFrame, 0, DescriptorFlag::DATA_STATIC);
+		utilPipelineLayout->SetRange(TIME_STEP, DescriptorType::CBV, 1, cbPerFrame,
+			0, DescriptorFlag::DATA_STATIC);
 		utilPipelineLayout->SetShaderStage(TIME_STEP, Shader::Stage::CS);
 
 		// Textures
@@ -484,7 +481,7 @@ bool Postprocess_Impl::createPipelineLayouts()
 	// Tone mapping
 	{
 		auto txImage = 0u;
-		auto roLogLum = txImage + 1;
+		auto roAvgLum = txImage + 1;
 
 		// Load shader
 		XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::PS, PS_TONE_MAP, PSToneMap, sizeof(PSToneMap)), false);
@@ -495,7 +492,7 @@ bool Postprocess_Impl::createPipelineLayouts()
 		{
 			// Get shader resource slots
 			txImage = reflector->GetResourceBindingPointByName("g_txImage", txImage);
-			roLogLum = reflector->GetResourceBindingPointByName("g_roLogLum", roLogLum);
+			roAvgLum = reflector->GetResourceBindingPointByName("g_roAvgLum", roAvgLum);
 		}
 
 		// Pipeline layout utility
@@ -503,7 +500,7 @@ bool Postprocess_Impl::createPipelineLayouts()
 
 		// Textures
 		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txImage);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, roLogLum);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, roAvgLum);
 		utilPipelineLayout->SetShaderStage(TEXTURES, Shader::Stage::PS);
 
 		XUSG_X_RETURN(m_pipelineLayouts[TONE_MAP], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
@@ -553,11 +550,11 @@ bool Postprocess_Impl::createPipelines(Format hdrFormat, Format ldrFormat)
 	// Resampling
 	{
 		// Get resampling pipelines
-		state->SetPipelineLayout(m_pipelineLayouts[RESAMPLE_LUM]);
+		state->SetPipelineLayout(m_pipelineLayouts[BLIT_LOG_LUM]);
 		state->SetShader(Shader::Stage::VS, m_shaderLib->GetShader(Shader::Stage::VS, VS_SCREEN_QUAD));
 		state->SetShader(Shader::Stage::PS, m_shaderLib->GetShader(Shader::Stage::PS, PS_BLIT_2D));
 		state->OMSetRTVFormat(0, Format::R16_FLOAT);
-		XUSG_X_RETURN(m_pipelines[RESAMPLE_LUM], state->GetPipeline(m_graphicsPipelineLib.get(), L"ResampleLum"), false);
+		XUSG_X_RETURN(m_pipelines[BLIT_LOG_LUM], state->GetPipeline(m_graphicsPipelineLib.get(), L"ResampleLum"), false);
 	}
 
 	// Luminance adaptation
