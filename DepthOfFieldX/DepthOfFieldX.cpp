@@ -98,7 +98,7 @@ void DepthOfFieldX::LoadPipeline()
 		for (auto i = 0u; hr == DXGI_ERROR_UNSUPPORTED; ++i)
 		{
 			dxgiAdapter = nullptr;
-			hr = m_factory->EnumAdapters1(i, &dxgiAdapter);
+			hr = m_factory->EnumAdapters1(i, dxgiAdapter.put());
 
 			if (SUCCEEDED(hr) && dxgiAdapter)
 			{
@@ -170,7 +170,7 @@ void DepthOfFieldX::LoadAssets()
 	vector<Resource::uptr> uploaders;
 	{
 		com_ptr<ID3DBlob> sceneFileBlob;
-		D3DReadFileToBlob(m_sceneFile.c_str(), &sceneFileBlob);
+		D3DReadFileToBlob(m_sceneFile.c_str(), sceneFileBlob.put());
 		XUSG_N_RETURN(sceneFileBlob, ThrowIfFailed(E_FAIL));
 
 		const string sceneString = static_cast<char*>(sceneFileBlob->GetBufferPointer());
@@ -575,8 +575,6 @@ void DepthOfFieldX::ParseCommandLineArgs(wchar_t* argv[], int argc)
 		return i + 1 < argc && arg[0] != L'/' &&
 			(arg[0] != L'-' || (arg[1] >= L'0' && arg[1] <= L'9') || arg[1] == L'.');
 	};
-
-	DXFramework::ParseCommandLineArgs(argv, argc);
 
 	for (auto i = 1; i < argc; ++i)
 	{

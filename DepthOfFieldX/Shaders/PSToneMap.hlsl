@@ -195,7 +195,7 @@ min16float3 vignette(float2 winBias)
 //--------------------------------------------------------------------------------------
 // Pixel shader that performs tone mapping
 //--------------------------------------------------------------------------------------
-min16float4 main(const PS_Input input) : SV_TARGET
+float4 main(const PS_Input input) : SV_TARGET
 {
 	const int2 pos = input.Pos.xy;
 	const float avgLum = g_roLogLum[0];
@@ -217,5 +217,5 @@ min16float4 main(const PS_Input input) : SV_TARGET
 
 	color *= vignette(input.UV);
 
-	return min16float4(color, 1.0);
+	return float4(color, 1.0);
 }

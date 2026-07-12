@@ -19,12 +19,12 @@
 #define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers.
 #endif
 
-//#define XUSG_INTERFACE __declspec(dllimport)
+#define XUSG_INTERFACE __declspec(dllimport)
 
 #include <windows.h>
 
 #include "d3d12.h"
-#include <dxgi1_5.h>
+#include <dxgi1_6.h>
 #include <D3Dcompiler.h>
 #include <DirectXMath.h>
 

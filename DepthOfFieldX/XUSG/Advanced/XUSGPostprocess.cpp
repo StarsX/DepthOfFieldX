@@ -39,6 +39,8 @@ Postprocess_Impl::Postprocess_Impl(API api) :
 	m_computePipelineLib(nullptr),
 	m_pipelineLayoutLib(nullptr),
 	m_descriptorTableLib(nullptr),
+	m_viewport(),
+	m_scissorRect(),
 	m_pipelineLayouts(),
 	m_pipelines(),
 	m_cbvTables()
