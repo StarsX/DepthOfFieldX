@@ -20,10 +20,11 @@ DepthOfFieldX::DepthOfFieldX(uint32_t width, uint32_t height, const wstring& nam
 	m_viewport(),
 	m_scissorRect(),
 	m_srvTables(),
+	m_uavTables(),
 	m_proj(),
 	m_view(),
 	m_eyePt(),
-	m_frameOdevity(0),
+	m_framePingPong(0),
 	m_frameIndex(0),
 	m_fenceEvent(nullptr),
 	m_fence(nullptr),
@@ -65,106 +66,130 @@ void DepthOfFieldX::OnInit()
 // Load the rendering pipeline dependencies.
 void DepthOfFieldX::LoadPipeline()
 {
-	auto dxgiFactoryFlags = 0u;
+	if (Device::GetApi() == API::VULKAN)
+	{
+		m_device = Device::MakeUnique();
+		if (SUCCEEDED((m_device->Create(nullptr, 0, L"VulkanDevice")))) m_title += L" (Vulkan)";
+		else
+		{
+			Device::UnlockApi();
+			Device::SetApi(API::DIRECTX_12);
+		}
+	}
+
+	if (Device::GetApi() != API::VULKAN)
+	{
+		auto dxgiFactoryFlags = 0u;
 
 #if defined(_DEBUG)
-	// Enable the debug layer (requires the Graphics Tools "optional feature").
-	// NOTE: Enabling the debug layer after device creation will invalidate the active device.
-	{
-		com_ptr<ID3D12Debug1> debugController = nullptr;
-		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
+		// Enable the debug layer (requires the Graphics Tools "optional feature").
+		// NOTE: Enabling the debug layer after device creation will invalidate the active device.
 		{
-			debugController->EnableDebugLayer();
-			//debugController->SetEnableGPUBasedValidation(TRUE);
+			com_ptr<ID3D12Debug1> debugController = nullptr;
+			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
+			{
+				debugController->EnableDebugLayer();
+				//debugController->SetEnableGPUBasedValidation(TRUE);
 
-			// Enable additional debug layers.
-			dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+				// Enable additional debug layers.
+				dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+			}
 		}
-	}
 #endif
 
-	ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_factory)));
+		ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_factory)));
 
-	DXGI_ADAPTER_DESC1 dxgiAdapterDesc;
-	com_ptr<IDXGIAdapter1> dxgiAdapter = nullptr;
-	com_ptr<ID3D12Device> device;
-	const auto useUMA = m_deviceType == DEVICE_UMA;
-	const auto useWARP = m_deviceType == DEVICE_WARP;
-	auto checkUMA = true, checkWARP = true;
-	auto hr = DXGI_ERROR_NOT_FOUND;
-	for (uint8_t n = 0; n < 3; ++n)
-	{
-		if (FAILED(hr)) hr = DXGI_ERROR_UNSUPPORTED;
-		for (auto i = 0u; hr == DXGI_ERROR_UNSUPPORTED; ++i)
+		DXGI_ADAPTER_DESC1 dxgiAdapterDesc;
+		com_ptr<IDXGIAdapter1> dxgiAdapter = nullptr;
+		com_ptr<ID3D12Device> device;
+		const auto useUMA = m_deviceType == DEVICE_UMA;
+		const auto useWARP = m_deviceType == DEVICE_WARP;
+		auto checkUMA = true, checkWARP = true;
+		auto hr = DXGI_ERROR_NOT_FOUND;
+		for (uint8_t n = 0; n < 3; ++n)
 		{
-			dxgiAdapter = nullptr;
-			hr = m_factory->EnumAdapters1(i, dxgiAdapter.put());
-
-			if (SUCCEEDED(hr) && dxgiAdapter)
+			if (FAILED(hr)) hr = DXGI_ERROR_UNSUPPORTED;
+			for (auto i = 0u; hr == DXGI_ERROR_UNSUPPORTED; ++i)
 			{
-				dxgiAdapter->GetDesc1(&dxgiAdapterDesc);
-				if (checkWARP) hr = dxgiAdapterDesc.VendorId == 0x1414 && dxgiAdapterDesc.DeviceId == 0x8c ?
-					(useWARP ? hr : DXGI_ERROR_UNSUPPORTED) : (useWARP ? DXGI_ERROR_UNSUPPORTED : hr);
-			}
+				dxgiAdapter = nullptr;
+				hr = m_factory->EnumAdapters1(i, dxgiAdapter.put());
 
-			if (SUCCEEDED(hr))
-			{
-				m_device = Device::MakeUnique(Api);
-				if (SUCCEEDED(m_device->Create(dxgiAdapter.get(), D3D_FEATURE_LEVEL_11_0)) && checkUMA)
+				if (SUCCEEDED(hr) && dxgiAdapter)
 				{
-					D3D12_FEATURE_DATA_ARCHITECTURE feature = {};
-					const auto pDevice = static_cast<ID3D12Device*>(m_device->GetHandle());
-					if (SUCCEEDED(pDevice->CheckFeatureSupport(D3D12_FEATURE_ARCHITECTURE, &feature, sizeof(feature))))
-						hr = feature.UMA ? (useUMA ? hr : DXGI_ERROR_UNSUPPORTED) : (useUMA ? DXGI_ERROR_UNSUPPORTED : hr);
+					dxgiAdapter->GetDesc1(&dxgiAdapterDesc);
+					if (checkWARP) hr = dxgiAdapterDesc.VendorId == 0x1414 && dxgiAdapterDesc.DeviceId == 0x8c ?
+						(useWARP ? hr : DXGI_ERROR_UNSUPPORTED) : (useWARP ? DXGI_ERROR_UNSUPPORTED : hr);
+				}
+
+				if (SUCCEEDED(hr))
+				{
+					m_device = Device::MakeUnique();
+					if (SUCCEEDED(m_device->Create(dxgiAdapter.get(), D3D_FEATURE_LEVEL_11_0, L"D3D12Device")) && checkUMA)
+					{
+						D3D12_FEATURE_DATA_ARCHITECTURE feature = {};
+						const auto pDevice = static_cast<ID3D12Device*>(m_device->GetNativeHandle());
+						if (SUCCEEDED(pDevice->CheckFeatureSupport(D3D12_FEATURE_ARCHITECTURE, &feature, sizeof(feature))))
+							hr = feature.UMA ? (useUMA ? hr : DXGI_ERROR_UNSUPPORTED) : (useUMA ? DXGI_ERROR_UNSUPPORTED : hr);
+					}
 				}
 			}
+
+			checkUMA = false;
+			if (n) checkWARP = false;
 		}
 
-		checkUMA = false;
-		if (n) checkWARP = false;
+		m_title += L" (DirectX 12)";
+		if (dxgiAdapterDesc.VendorId == 0x1414 && dxgiAdapterDesc.DeviceId == 0x8c) m_title += L" (WARP)";
+		else if (dxgiAdapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) m_title += L" (Software)";
+		else m_title += wstring(L" - ") + dxgiAdapterDesc.Description;
+		ThrowIfFailed(hr);
 	}
 
-	if (dxgiAdapterDesc.VendorId == 0x1414 && dxgiAdapterDesc.DeviceId == 0x8c) m_title += L" (WARP)";
-	else if (dxgiAdapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) m_title += L" (Software)";
-	else m_title += wstring(L" - ") + dxgiAdapterDesc.Description;
-	ThrowIfFailed(hr);
+	SetWindowText(Win32Application::GetHwnd(), m_title.c_str());
 
 	// Create the command queue.
-	m_commandQueue = CommandQueue::MakeUnique(Api);
+	m_commandQueue = CommandQueue::MakeUnique();
 	XUSG_N_RETURN(m_commandQueue->Create(m_device.get(), CommandListType::DIRECT, CommandQueueFlag::NONE,
 		0, 0, L"CommandQueue"), ThrowIfFailed(E_FAIL));
+
+	// Vulkan swapchain creation sends messages to this window. The window has to
+	// be visible first, or the driver blocks the UI thread forever.
+	if (Device::GetApi() == API::VULKAN)
+		ShowWindow(Win32Application::GetHwnd(), SW_SHOW);
 
 	// Create the swap chain.
 	CreateSwapchain();
 
-	// Reset the index to the current back buffer.
+	// Window is shown above for Vulkan so acquire is safe (DX12-style WSI path).
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
 	// Create a command allocator for each frame.
 	for (uint8_t n = 0; n < FrameCount; ++n)
 	{
-		m_commandAllocators[n] = CommandAllocator::MakeUnique(Api);
+		m_commandAllocators[n] = CommandAllocator::MakeUnique();
 		XUSG_N_RETURN(m_commandAllocators[n]->Create(m_device.get(), CommandListType::DIRECT,
 			(L"CommandAllocator" + to_wstring(n)).c_str()), ThrowIfFailed(E_FAIL));
 	}
 
 	// Create descriptor-table lib.
-	m_descriptorTableLib = DescriptorTableLib::MakeShared(m_device.get(), L"DescriptorTableLib", Api);
+	m_descriptorTableLib = DescriptorTableLib::MakeShared(m_device.get(), L"DescriptorTableLib");
 }
 
 // Load the sample assets.
 void DepthOfFieldX::LoadAssets()
 {
-	m_shaderLib = ShaderLib::MakeShared(Api);
-	m_graphicsPipelineLib = Graphics::PipelineLib::MakeShared(m_device.get(), Api);
-	m_computePipelineLib = Compute::PipelineLib::MakeShared(m_device.get(), Api);
-	m_pipelineLayoutLib = PipelineLayoutLib::MakeShared(m_device.get(), Api);
+	m_shaderLib = ShaderLib::MakeShared();
+	m_graphicsPipelineLib = Graphics::PipelineLib::MakeShared(m_device.get());
+	m_computePipelineLib = Compute::PipelineLib::MakeShared(m_device.get());
+	m_pipelineLayoutLib = PipelineLayoutLib::MakeShared(m_device.get());
 
-	// Create the command list.
-	m_commandList = CommandList::MakeUnique(Api);
+	// Create the command list (register all frame allocators for Reset).
+	m_commandList = CommandList::MakeUnique();
 	const auto pCommandList = m_commandList.get();
+	CommandAllocator* pAllocators[FrameCount];
+	for (uint8_t n = 0; n < FrameCount; ++n) pAllocators[n] = m_commandAllocators[n].get();
 	XUSG_N_RETURN(pCommandList->Create(m_device.get(), 0, CommandListType::DIRECT,
-		m_commandAllocators[m_frameIndex].get(), nullptr), ThrowIfFailed(E_FAIL));
+		FrameCount, pAllocators, nullptr), ThrowIfFailed(E_FAIL));
 
 	// Load scene asset
 	vector<Resource::uptr> uploaders;
@@ -179,7 +204,7 @@ void DepthOfFieldX::LoadAssets()
 		sceneReader.ReadJson(sceneString);
 
 		// Create scene
-		m_scene = Scene::MakeUnique(Api);
+		m_scene = Scene::MakeUnique();
 		//m_scene->SetRenderTarget(m_rtHDR, m_depth);
 		XUSG_N_RETURN(m_scene->LoadAssets(&sceneReader, pCommandList, m_shaderLib,
 			m_graphicsPipelineLib, m_computePipelineLib, m_pipelineLayoutLib,
@@ -188,7 +213,8 @@ void DepthOfFieldX::LoadAssets()
 	}
 
 	{
-		m_postprocess = make_unique<PostprocessX>(Api);
+		Device::LockApi();
+		m_postprocess = make_unique<PostprocessX>();
 		XUSG_N_RETURN(m_postprocess->Init(m_device.get(), m_shaderLib, m_graphicsPipelineLib,
 			m_computePipelineLib, m_pipelineLayoutLib, m_descriptorTableLib,
 			FormatHDR, FormatLDR), ThrowIfFailed(E_FAIL));
@@ -202,7 +228,7 @@ void DepthOfFieldX::LoadAssets()
 	{
 		if (!m_fence)
 		{
-			m_fence = Fence::MakeUnique(Api);
+			m_fence = Fence::MakeUnique();
 			XUSG_N_RETURN(m_fence->Create(m_device.get(), m_fenceValues[m_frameIndex]++, FenceFlag::NONE, L"Fence"), ThrowIfFailed(E_FAIL));
 		}
 
@@ -245,12 +271,13 @@ void DepthOfFieldX::LoadAssets()
 void DepthOfFieldX::CreateSwapchain()
 {
 	// Describe and create the swap chain.
-	m_swapChain = SwapChain::MakeUnique(Api);
-	XUSG_N_RETURN(m_swapChain->Create(m_factory.get(), Win32Application::GetHwnd(), m_commandQueue->GetHandle(),
+	m_swapChain = SwapChain::MakeUnique();
+	XUSG_N_RETURN(m_swapChain->Create(m_factory.get(), Win32Application::GetHwnd(), m_commandQueue->GetNativeHandle(),
 		FrameCount, m_width, m_height, FormatLDR, SwapChainFlag::ALLOW_TEARING), ThrowIfFailed(E_FAIL));
 
 	// This class does not support exclusive full-screen mode and prevents DXGI from responding to the ALT+ENTER shortcut.
-	ThrowIfFailed(m_factory->MakeWindowAssociation(Win32Application::GetHwnd(), DXGI_MWA_NO_ALT_ENTER));
+	if (m_factory)
+		ThrowIfFailed(m_factory->MakeWindowAssociation(Win32Application::GetHwnd(), DXGI_MWA_NO_ALT_ENTER));
 }
 
 void DepthOfFieldX::CreateResources()
@@ -259,34 +286,34 @@ void DepthOfFieldX::CreateResources()
 	// and create render target views for each of them.
 	for (uint8_t n = 0; n < FrameCount; ++n)
 	{
-		m_renderTargets[n] = RenderTarget::MakeUnique(Api);
+		m_renderTargets[n] = RenderTarget::MakeUnique();
 		XUSG_N_RETURN(m_renderTargets[n]->CreateFromSwapChain(m_device.get(), m_swapChain.get(), n), ThrowIfFailed(E_FAIL));
 	}
 
 	// Create TAA RTs
 	for (uint8_t n = 0; n < 2; ++n)
 	{
-		m_temporalColors[n] = RenderTarget::MakeUnique(Api);
+		m_temporalColors[n] = RenderTarget::MakeUnique();
 		XUSG_N_RETURN(m_temporalColors[n]->Create(m_device.get(), m_width, m_height, FormatHDR, 1, ResourceFlag::ALLOW_UNORDERED_ACCESS,
 			1, 1, nullptr, false, MemoryFlag::NONE, (L"TemporalColor" + to_wstring(n)).c_str()), ThrowIfFailed(E_FAIL));
 
-		m_metaBuffers[n] = RenderTarget::MakeUnique(Api);
+		m_metaBuffers[n] = RenderTarget::MakeUnique();
 		XUSG_N_RETURN(m_metaBuffers[n]->Create(m_device.get(), m_width, m_height, Format::R8_UNORM, 1, ResourceFlag::ALLOW_UNORDERED_ACCESS,
 			1, 1, nullptr, false, MemoryFlag::NONE, (L"MetadataBuffer" + to_wstring(n)).c_str()), ThrowIfFailed(E_FAIL));
 	}
 
 	// Create HDR RT
-	m_sceneColor = RenderTarget::MakeShared(Api);
+	m_sceneColor = RenderTarget::MakeShared();
 	XUSG_N_RETURN(m_sceneColor->Create(m_device.get(), m_width, m_height, FormatHDR, 1, ResourceFlag::ALLOW_UNORDERED_ACCESS,
 		1, 1, nullptr, false, MemoryFlag::NONE, L"SceneColor"), ThrowIfFailed(E_FAIL));
 
 	// Create shade-amount RT
-	m_sceneShade = RenderTarget::MakeShared(Api);
+	m_sceneShade = RenderTarget::MakeShared();
 	XUSG_N_RETURN(m_sceneShade->Create(m_device.get(), m_width, m_height, Format::R8_UNORM, 1, ResourceFlag::NONE,
 		1, 1, nullptr, false, MemoryFlag::NONE, L"SceneShadeAmount"), ThrowIfFailed(E_FAIL));
 
 	// Create a DSV
-	m_sceneDepth = DepthStencil::MakeShared(Api);
+	m_sceneDepth = DepthStencil::MakeShared();
 	XUSG_N_RETURN(m_sceneDepth->Create(m_device.get(), m_width, m_height, Format::UNKNOWN, ResourceFlag::NONE,
 		1, 1, 1, 1.0f, 0, false, MemoryFlag::NONE, L"SceneDepth"), ThrowIfFailed(E_FAIL));
 
@@ -297,11 +324,10 @@ void DepthOfFieldX::CreateResources()
 
 void DepthOfFieldX::ResizeAssets()
 {
-	const auto pCommandAllocator = m_commandAllocators[m_frameIndex].get();
-	XUSG_N_RETURN(pCommandAllocator->Reset(), ThrowIfFailed(E_FAIL));
+	XUSG_N_RETURN(m_commandAllocators[m_frameIndex]->Reset(), ThrowIfFailed(E_FAIL));
 
 	const auto pCommandList = m_commandList.get();
-	XUSG_N_RETURN(pCommandList->Reset(pCommandAllocator, nullptr), ThrowIfFailed(E_FAIL));
+	XUSG_N_RETURN(pCommandList->Reset(m_frameIndex, nullptr), ThrowIfFailed(E_FAIL));
 
 	// Scene
 	vector<Resource::uptr> uploaders;
@@ -319,19 +345,19 @@ void DepthOfFieldX::ResizeAssets()
 				m_sceneColor->GetSRV(), m_temporalColors[!n]->GetSRV(), m_scene->GetGBuffer(Scene::MOTION_IDX),
 				m_sceneShade->GetSRV(), m_metaBuffers[!n]->GetSRV()), ThrowIfFailed(E_FAIL));
 
-			const auto srvTable = Util::DescriptorTable::MakeUnique(Api);
+			const auto srvTable = Util::DescriptorTable::MakeUnique();
 			const Descriptor srvs[] = { m_temporalColors[n]->GetSRV(), m_sceneDepth->GetSRV() };
 			srvTable->SetDescriptors(0, static_cast<uint32_t>(size(srvs)), srvs);
 			XUSG_X_RETURN(m_srvTables[SRV_HDR_IMAGE + n], srvTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
 
-			const auto uavTable = Util::DescriptorTable::MakeUnique(Api);
+			const auto uavTable = Util::DescriptorTable::MakeUnique();
 			const Descriptor uavs[] = { m_temporalColors[n]->GetUAV(), m_metaBuffers[n]->GetUAV() };
 			uavTable->SetDescriptors(0, static_cast<uint32_t>(size(uavs)), uavs);
 			XUSG_X_RETURN(m_uavTables[UAV_AA_OUTPUT + n], uavTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
 		}
 
 		{
-			const auto uavTable = Util::DescriptorTable::MakeUnique(Api);
+			const auto uavTable = Util::DescriptorTable::MakeUnique();
 			const Descriptor uavs[] = { m_sceneColor->GetUAV() };
 			uavTable->SetDescriptors(0, static_cast<uint32_t>(size(uavs)), uavs);
 			XUSG_X_RETURN(m_uavTables[UAV_DOF_OUTPUT], uavTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), ThrowIfFailed(E_FAIL));
@@ -348,7 +374,7 @@ void DepthOfFieldX::ResizeAssets()
 	{
 		if (!m_fence)
 		{
-			m_fence = Fence::MakeUnique(Api);
+			m_fence = Fence::MakeUnique();
 			XUSG_N_RETURN(m_fence->Create(m_device.get(), m_fenceValues[m_frameIndex]++, FenceFlag::NONE, L"Fence"), ThrowIfFailed(E_FAIL));
 		}
 
@@ -366,6 +392,12 @@ void DepthOfFieldX::ResizeAssets()
 // Update frame-based values.
 void DepthOfFieldX::OnUpdate()
 {
+	// ShowWindow can paint before the scene exists.
+	if (!m_swapChain || !m_scene) return;
+
+	if (Device::GetApi() == API::VULKAN)
+		m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+
 	// Timer
 	static auto time = 0.0, pauseTime = 0.0;
 
@@ -390,6 +422,8 @@ void DepthOfFieldX::OnUpdate()
 // Render the scene.
 void DepthOfFieldX::OnRender()
 {
+	if (!m_swapChain || !m_scene) return;
+
 	// Record all the commands we need to render the scene into the command list.
 	PopulateCommandList();
 
@@ -417,6 +451,9 @@ void DepthOfFieldX::OnWindowSizeChanged(int width, int height)
 	{
 		throw std::exception("Call SetWindow with a valid Win32 window handle");
 	}
+
+	// ShowWindow during startup arrives before the swap chain exists.
+	if (!m_swapChain) return;
 
 	// Wait until all previous GPU work is complete.
 	WaitForGpu();
@@ -591,7 +628,9 @@ void DepthOfFieldX::ParseCommandLineArgs(wchar_t* argv[], int argc)
 		{
 			if (hasNextArgValue(i)) m_sceneFile = argv[++i];
 		}
+		else if (isArgMatched(i, L"vulkan") || isArgMatched(i, L"vk")) Device::SetApi(API::VULKAN);
 		else if (isArgMatched(i, L"noIBL")) m_useIBL = false;
+		else if (isArgMatched(i, L"pause")) m_isPaused = true;
 	}
 }
 
@@ -600,14 +639,13 @@ void DepthOfFieldX::PopulateCommandList()
 	// Command list allocators can only be reset when the associated 
 	// command lists have finished execution on the GPU; apps should use 
 	// fences to determine GPU execution progress.
-	const auto pCommandAllocator = m_commandAllocators[m_frameIndex].get();
-	XUSG_N_RETURN(pCommandAllocator->Reset(), ThrowIfFailed(E_FAIL));
+	XUSG_N_RETURN(m_commandAllocators[m_frameIndex]->Reset(), ThrowIfFailed(E_FAIL));
 
 	// However, when ExecuteCommandList() is called on a particular command 
 	// list, that command list can then be reset at any time and must be before 
 	// re-recording.
 	const auto pCommandList = m_commandList.get();
-	XUSG_N_RETURN(pCommandList->Reset(pCommandAllocator, nullptr), ThrowIfFailed(E_FAIL));
+	XUSG_N_RETURN(pCommandList->Reset(m_frameIndex, nullptr), ThrowIfFailed(E_FAIL));
 
 	// Record commands.
 	// Set descriptor heap
@@ -623,19 +661,19 @@ void DepthOfFieldX::PopulateCommandList()
 	m_postprocess->DepthOfField(pCommandList, m_sceneColor.get(), m_uavTables[UAV_DOF_OUTPUT], m_srvTables[SRV_AA_INPUT]);
 
 	// Temporal AA
-	const uint8_t inverseFrameOdevity = m_frameOdevity ? 0 : 1;
-	//RenderTarget* ppDsts[] = { m_temporalColors[m_frameOdevity].get(), m_metaBuffers[m_frameOdevity].get() };
-	Texture* ppDsts[] = { m_temporalColors[m_frameOdevity].get(), m_metaBuffers[m_frameOdevity].get() };
-	Texture* ppSrcs[] = { m_sceneColor.get(), m_sceneShade.get(), m_metaBuffers[inverseFrameOdevity].get() };
+	const uint8_t inverseFramePingPong = m_framePingPong ? 0 : 1;
+	//RenderTarget* ppDsts[] = { m_temporalColors[m_framePingPong].get(), m_metaBuffers[m_framePingPong].get() };
+	Texture* ppDsts[] = { m_temporalColors[m_framePingPong].get(), m_metaBuffers[m_framePingPong].get() };
+	Texture* ppSrcs[] = { m_sceneColor.get(), m_sceneShade.get(), m_metaBuffers[inverseFramePingPong].get() };
 	//m_postprocess->Antialias(pCommandList, static_cast<uint8_t>(size(ppDsts)), ppDsts,
-		//static_cast<uint8_t>(size(ppSrcs)), ppSrcs, m_srvTables[SRV_AA_INPUT + inverseFrameOdevity]);
-	m_postprocess->TemporalAA(pCommandList, static_cast<uint8_t>(size(ppDsts)), ppDsts, m_uavTables[UAV_AA_OUTPUT + m_frameOdevity],
-		static_cast<uint8_t>(size(ppSrcs)), ppSrcs, m_srvTables[SRV_AA_INPUT + m_frameOdevity]);
+		//static_cast<uint8_t>(size(ppSrcs)), ppSrcs, m_srvTables[SRV_AA_INPUT + m_framePingPong]);
+	m_postprocess->TemporalAA(pCommandList, static_cast<uint8_t>(size(ppDsts)), ppDsts, m_uavTables[UAV_AA_OUTPUT + m_framePingPong],
+		static_cast<uint8_t>(size(ppSrcs)), ppSrcs, m_srvTables[SRV_AA_INPUT + m_framePingPong]);
 
 	// Postprocessing
-	m_postprocess->Render(pCommandList, pRenderTarget, m_temporalColors[m_frameOdevity].get(),
-		m_srvTables[SRV_HDR_IMAGE + m_frameOdevity]);
-	m_frameOdevity = inverseFrameOdevity;
+	m_postprocess->Render(pCommandList, pRenderTarget, m_temporalColors[m_framePingPong].get(),
+		m_srvTables[SRV_HDR_IMAGE + m_framePingPong]);
+	m_framePingPong = inverseFramePingPong;
 
 	// Indicate that the back buffer will now be used to present.
 	ResourceBarrier barrier;

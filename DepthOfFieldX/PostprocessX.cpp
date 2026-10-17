@@ -3,6 +3,7 @@
 //--------------------------------------------------------------------------------------
 
 //#include "Advanced/XUSGAdvanced.h"
+#include "Core/XUSG.h"
 #include "PostprocessX.h"
 
 #define _TONE_MAPPED_BLIT_
@@ -18,8 +19,16 @@ struct CBCamCoCParams
 	float CocToImageSpace;
 };
 
-PostprocessX::PostprocessX(API api) :
-	Postprocess_Impl(api)
+PostprocessX::PostprocessX() :
+	Postprocess_Impl(),
+	m_exPipelineLayouts(),
+	m_exPipelines(),
+	m_srvDepthTable(),
+	m_uavCoCTable(),
+	m_pDepth(nullptr),
+	m_pVelocity(nullptr),
+	m_numMipLevels(0),
+	m_time(0.0)
 {
 }
 
@@ -27,7 +36,7 @@ PostprocessX::~PostprocessX()
 {
 }
 
-bool PostprocessX::Init(const Device* pDevice, const ShaderLib::sptr& shaderLib,
+bool PostprocessX::Init(Device* pDevice, const ShaderLib::sptr& shaderLib,
 	const Graphics::PipelineLib::sptr& graphicsPipelineLib,
 	const Compute::PipelineLib::sptr& computePipelineLib,
 	const PipelineLayoutLib::sptr& pipelineLayoutLib,
@@ -43,7 +52,7 @@ bool PostprocessX::Init(const Device* pDevice, const ShaderLib::sptr& shaderLib,
 	return true;
 }
 
-bool PostprocessX::ChangeWindowSize(const Device* pDevice, const Texture* pReference)
+bool PostprocessX::ChangeWindowSize(Device* pDevice, const Texture* pReference)
 {
 	XUSG_N_RETURN(Postprocess_Impl::ChangeWindowSize(pDevice, pReference), false);
 
@@ -78,7 +87,7 @@ bool PostprocessX::ChangeWindowSize(const Device* pDevice, const Texture* pRefer
 bool PostprocessX::SetDepth(DepthStencil* pDepth)
 {
 	m_pDepth = pDepth;
-	const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+	const auto descriptorTable = Util::DescriptorTable::MakeUnique();
 	descriptorTable->SetDescriptors(0, 1, &pDepth->GetSRV());
 	XUSG_X_RETURN(m_srvDepthTable, descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 
@@ -90,7 +99,7 @@ void PostprocessX::SetTime(double time)
 	m_time = time;
 }
 
-void PostprocessX::DepthOfField(XUSG::CommandList* pCommandList, Texture* pSceneColor,
+void PostprocessX::DepthOfField(const CommandList* pCommandList, Texture* pSceneColor,
 	const DescriptorTable& uavTable, const DescriptorTable& srvTable)
 {
 #ifdef _TONE_MAPPED_BLIT_
@@ -127,7 +136,7 @@ void PostprocessX::DepthOfField(XUSG::CommandList* pCommandList, Texture* pScene
 #endif
 }
 
-void PostprocessX::TemporalAA(CommandList* pCommandList, uint8_t numUAVs, Texture** ppDsts,
+void PostprocessX::TemporalAA(const CommandList* pCommandList, uint8_t numUAVs, Texture** ppDsts,
 	const DescriptorTable& uavTable, uint8_t numSRVs, Texture** ppSrcs, const DescriptorTable& srvTable)
 {
 	// Set barriers
@@ -161,7 +170,7 @@ DescriptorTable PostprocessX::CreateTAASrvTable(const Descriptor& srvCurrent, co
 	const Texture* pVelocity, const Descriptor& srvShadeAmt, const Descriptor& srvMeta)
 {
 	m_pVelocity = const_cast<Texture*>(pVelocity);
-	const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+	const auto descriptorTable = Util::DescriptorTable::MakeUnique();
 	const Descriptor descriptors[] = { srvCurrent, srvPrevious, pVelocity->GetSRV(), srvShadeAmt, srvMeta, m_circleOfConf->GetSRV() };
 	descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 
@@ -170,18 +179,23 @@ DescriptorTable PostprocessX::CreateTAASrvTable(const Descriptor& srvCurrent, co
 
 bool PostprocessX::createPipelineLayouts()
 {
+	const auto vulkan = Device::GetApi() == API::VULKAN;
+	const auto cbvSpace = GetCBVSpace();
+	const auto srvSpace = GetSRVSpace();
+	const auto samplerSpace = GetSamplerSpace();
+	const auto uavSpace = GetUAVSpace();
 	const auto pSampler = m_descriptorTableLib->GetSampler(LINEAR_CLAMP);
 
 	// CoC generation
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_COC_GEN, L"CSCircleOfConf.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_COC_GEN, vulkan ? L"CSCircleOfConf.spv" : L"CSCircleOfConf.cso"), false);
 	{
 		// Pipeline layout utility
-		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique();
 
 		// Resources
-		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 1, 0);
-		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 1, 0);
-		utilPipelineLayout->SetConstants(2, 3, 0);
+		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 1, 0, uavSpace);
+		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 1, 0, srvSpace);
+		utilPipelineLayout->SetConstants(2, 3, 0, cbvSpace);
 		utilPipelineLayout->SetShaderStage(0, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
 
@@ -190,37 +204,37 @@ bool PostprocessX::createPipelineLayouts()
 	}
 
 	// DoF down sampling
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_DOWN, L"CSBilateralDown.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_DOWN, vulkan ? L"CSBilateralDown.spv" : L"CSBilateralDown.cso"), false);
 	{
 		// Pipeline layout utility
-		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique();
 
 		// Resources
-		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 2, 0);
-		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 2, 0);
-		utilPipelineLayout->SetConstants(2, 1, 0);
+		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 2, 0, uavSpace);
+		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 2, 0, srvSpace);
+		utilPipelineLayout->SetConstants(2, 1, 0, cbvSpace);
 		utilPipelineLayout->SetShaderStage(0, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
 
 		// Sampler
-		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, 0);
+		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, 0, samplerSpace);
 
 		XUSG_X_RETURN(m_exPipelineLayouts[BILATERAL_DOF_DOWN], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
 			PipelineLayoutFlag::NONE, L"DoFDownLayout"), false);
 	}
 
 	// DoF up sampling
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_UP, L"CSBilateralUp.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_DOF_UP, vulkan ? L"CSBilateralUp.spv" : L"CSBilateralUp.cso"), false);
 	{
 		// Pipeline layout utility
-		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique();
 
 		// Resources
-		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 2, 0);
-		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 2, 0);
-		utilPipelineLayout->SetRange(2, DescriptorType::SRV, 2, 2);
-		utilPipelineLayout->SetRange(3, DescriptorType::SRV, 2, 4);
-		utilPipelineLayout->SetConstants(4, 1, 0);
+		utilPipelineLayout->SetRange(0, DescriptorType::UAV, 2, 0, uavSpace);
+		utilPipelineLayout->SetRange(1, DescriptorType::SRV, 2, 0, srvSpace);
+		utilPipelineLayout->SetRange(2, DescriptorType::SRV, 2, 2, srvSpace);
+		utilPipelineLayout->SetRange(3, DescriptorType::SRV, 2, 4, srvSpace);
+		utilPipelineLayout->SetConstants(4, 1, 0, cbvSpace);
 		utilPipelineLayout->SetShaderStage(0, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(2, Shader::Stage::CS);
@@ -242,59 +256,59 @@ bool PostprocessX::createPipelineLayouts()
 		auto smpLinearClamp = 0u;
 
 		// Load shader
-		XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_TEMPORAL_AA, L"CSTemporalAA.cso"), false);
+		XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_TEMPORAL_AA, vulkan ? L"CSTemporalAA.spv" : L"CSTemporalAA.cso"), false);
 
 		// Get pixel shader slots
 		auto reflector = m_shaderLib->GetReflector(Shader::Stage::CS, TEMPORAL_AA);
 		if (reflector && reflector->IsValid())
 		{
 			// Get constant buffer slot
-			cbImmutable = reflector->GetResourceBindingPointByName("cbImmutable", cbImmutable);
+			cbImmutable = reflector->ReflectBinding("cbImmutable", cbImmutable, cbvSpace);
 
 			// Get shader resource slots
-			txImage = reflector->GetResourceBindingPointByName("g_txImage", txImage);
-			txHistory = reflector->GetResourceBindingPointByName("g_txHistory", txHistory);
-			txVelocity = reflector->GetResourceBindingPointByName("g_txVelocity", txVelocity);
-			txMasks = reflector->GetResourceBindingPointByName("g_txMask", txMasks);
-			txHistMeta = reflector->GetResourceBindingPointByName("g_txHistMeta", txHistMeta);
+			txImage = reflector->ReflectBinding("g_txImage", txImage, srvSpace);
+			txHistory = reflector->ReflectBinding("g_txHistory", txHistory, srvSpace);
+			txVelocity = reflector->ReflectBinding("g_txVelocity", txVelocity, srvSpace);
+			txMasks = reflector->ReflectBinding("g_txMask", txMasks, srvSpace);
+			txHistMeta = reflector->ReflectBinding("g_txHistMeta", txHistMeta, srvSpace);
 
 			// Get sampler slot
-			smpLinearClamp = reflector->GetResourceBindingPointByName("g_smpLinear", smpLinearClamp);
+			smpLinearClamp = reflector->ReflectBinding("g_smpLinear", smpLinearClamp, samplerSpace);
 		}
 
 		// Pipeline layout utility
-		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique();
 
 		// Constant buffers
 		utilPipelineLayout->SetRange(IMMUTABLE, DescriptorType::CBV, 1, cbImmutable,
-			0, DescriptorFlag::DATA_STATIC);
+			0, DescriptorFlag::DATA_STATIC, cbvSpace);
 
 		// Textures
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txImage);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txHistory);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txVelocity);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txMasks);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txHistMeta);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txCoc);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txImage, srvSpace);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txHistory, srvSpace);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txVelocity, srvSpace);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txMasks, srvSpace);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txHistMeta, srvSpace);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txCoc, srvSpace);
 
-		utilPipelineLayout->SetRange(2, DescriptorType::UAV, 2, 0);
+		utilPipelineLayout->SetRange(2, DescriptorType::UAV, 2, 0, uavSpace);
 
 		// Sampler
-		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, smpLinearClamp);
+		utilPipelineLayout->SetStaticSamplers(&pSampler, 1, smpLinearClamp, samplerSpace);
 
 		XUSG_X_RETURN(m_exPipelineLayouts[TEMPORAL_AA], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
 			PipelineLayoutFlag::NONE, L"TemporalAACLayout"), false);
 	}
 
 	// Tone-mapped blit
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_TM_BLIT, L"CSTMBlit.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_TM_BLIT, vulkan ? L"CSTMBlit.spv" : L"CSTMBlit.cso"), false);
 	{
 		// Pipeline layout utility
-		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique();
 
 		// Texture
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, 0);
-		utilPipelineLayout->SetRange(1, DescriptorType::UAV, 1, 0);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, 0, srvSpace);
+		utilPipelineLayout->SetRange(1, DescriptorType::UAV, 1, 0, uavSpace);
 		utilPipelineLayout->SetShaderStage(TEXTURES, Shader::Stage::CS);
 		utilPipelineLayout->SetShaderStage(1, Shader::Stage::CS);
 
@@ -303,7 +317,7 @@ bool PostprocessX::createPipelineLayouts()
 	}
 
 	// Inverse tone-mapped blit
-	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_ITM_BLIT, L"CSITMBlit.cso"), false);
+	XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::CS, CS_ITM_BLIT, vulkan ? L"CSITMBlit.spv" : L"CSITMBlit.cso"), false);
 	m_exPipelineLayouts[ITM_BLIT] = m_exPipelineLayouts[TM_BLIT];
 
 	// Tone mapping
@@ -313,7 +327,7 @@ bool PostprocessX::createPipelineLayouts()
 		auto txCoC = roLogLum + 1;
 
 		// Load shader
-		XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::PS, PS_TONE_MAP, L"PSToneMap.cso"), false);
+		XUSG_N_RETURN(m_shaderLib->CreateShader(Shader::Stage::PS, PS_TONE_MAP, vulkan ? L"PSToneMap.spv" : L"PSToneMap.cso"), false);
 
 		// Get pixel shader slots
 		auto reflector = m_shaderLib->GetReflector(Shader::Stage::PS, PS_TONE_MAP);
@@ -325,12 +339,12 @@ bool PostprocessX::createPipelineLayouts()
 		}
 
 		// Pipeline layout utility
-		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique(m_api);
+		const auto utilPipelineLayout = Util::PipelineLayout::MakeUnique();
 
 		// Textures
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txImage);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, roLogLum);
-		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txCoC);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txImage, srvSpace);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, roLogLum, srvSpace);
+		utilPipelineLayout->SetRange(TEXTURES, DescriptorType::SRV, 1, txCoC, srvSpace);
 		utilPipelineLayout->SetShaderStage(TEXTURES, Shader::Stage::PS);
 
 		XUSG_X_RETURN(m_pipelineLayouts[TONE_MAP], utilPipelineLayout->GetPipelineLayout(m_pipelineLayoutLib.get(),
@@ -344,7 +358,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 {
 	// CoC generation
 	{
-		const auto state = Compute::State::MakeUnique(m_api);
+		const auto state = Compute::State::MakeUnique();
 		state->SetPipelineLayout(m_exPipelineLayouts[CIRCLE_OF_CONF]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_COC_GEN));
 		XUSG_X_RETURN(m_exPipelines[CIRCLE_OF_CONF], state->GetPipeline(m_computePipelineLib.get(), L"CocGeneration"), false);
@@ -352,7 +366,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 
 	// DoF down sampling
 	{
-		const auto state = Compute::State::MakeUnique(m_api);
+		const auto state = Compute::State::MakeUnique();
 		state->SetPipelineLayout(m_exPipelineLayouts[BILATERAL_DOF_DOWN]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_DOF_DOWN));
 		XUSG_X_RETURN(m_exPipelines[BILATERAL_DOF_DOWN], state->GetPipeline(m_computePipelineLib.get(), L"DoFDown"), false);
@@ -360,7 +374,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 
 	// DoF up sampling
 	{
-		const auto state = Compute::State::MakeUnique(m_api);
+		const auto state = Compute::State::MakeUnique();
 		state->SetPipelineLayout(m_exPipelineLayouts[BILATERAL_DOF_UP]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_DOF_UP));
 		XUSG_X_RETURN(m_exPipelines[BILATERAL_DOF_UP], state->GetPipeline(m_computePipelineLib.get(), L"DoFUp"), false);
@@ -368,7 +382,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 
 	// Temporal AA
 	{
-		const auto state = Compute::State::MakeUnique(m_api);
+		const auto state = Compute::State::MakeUnique();
 		state->SetPipelineLayout(m_exPipelineLayouts[TEMPORAL_AA]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_TEMPORAL_AA));
 		XUSG_X_RETURN(m_exPipelines[TEMPORAL_AA], state->GetPipeline(m_computePipelineLib.get(), L"TemporalAAC"), false);
@@ -376,7 +390,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 
 	// Tone-mapped blit
 	{
-		const auto state = Compute::State::MakeUnique(m_api);
+		const auto state = Compute::State::MakeUnique();
 		state->SetPipelineLayout(m_exPipelineLayouts[TM_BLIT]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_TM_BLIT));
 		XUSG_X_RETURN(m_exPipelines[TM_BLIT], state->GetPipeline(m_computePipelineLib.get(), L"ToneMappedBlit"), false);
@@ -384,7 +398,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 
 	// Inverse tone-mapped blit
 	{
-		const auto state = Compute::State::MakeUnique(m_api);
+		const auto state = Compute::State::MakeUnique();
 		state->SetPipelineLayout(m_exPipelineLayouts[ITM_BLIT]);
 		state->SetShader(m_shaderLib->GetShader(Shader::Stage::CS, CS_ITM_BLIT));
 		XUSG_X_RETURN(m_exPipelines[ITM_BLIT], state->GetPipeline(m_computePipelineLib.get(), L"InverseToneMappedBlit"), false);
@@ -393,7 +407,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 	// Tone mapping
 	{
 		// Get tone-mapping pipeline
-		const auto state = Graphics::State::MakeUnique(m_api);
+		const auto state = Graphics::State::MakeUnique();
 		state->SetPipelineLayout(m_pipelineLayouts[TONE_MAP]);
 		state->SetShader(Shader::Stage::VS, m_shaderLib->GetShader(Shader::Stage::VS, VS_SCREEN_QUAD));
 		state->SetShader(Shader::Stage::PS, m_shaderLib->GetShader(Shader::Stage::PS, PS_TONE_MAP));
@@ -408,7 +422,7 @@ bool PostprocessX::createPipelines(Format hdrFormat, Format ldrFormat)
 bool PostprocessX::createDescriptorTables()
 {
 	{
-		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+		const auto descriptorTable = Util::DescriptorTable::MakeUnique();
 		descriptorTable->SetDescriptors(0, 1, &m_circleOfConf->GetUAV());
 		XUSG_X_RETURN(m_uavCoCTable, descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
 	}
@@ -416,7 +430,7 @@ bool PostprocessX::createDescriptorTables()
 	m_uavDoFDownTables.resize(m_numMipLevels);
 	for (uint8_t i = 0; i < m_numMipLevels; ++i)
 	{
-		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+		const auto descriptorTable = Util::DescriptorTable::MakeUnique();
 		const Descriptor descriptors[] =
 		{
 			m_source->GetUAV(i),
@@ -429,7 +443,7 @@ bool PostprocessX::createDescriptorTables()
 	m_uavDoFUpTables.resize(m_numMipLevels);
 	for (uint8_t i = 0; i < m_numMipLevels; ++i)
 	{
-		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+		const auto descriptorTable = Util::DescriptorTable::MakeUnique();
 		const Descriptor descriptors[] =
 		{
 			m_filteredImage->GetUAV(i),
@@ -442,7 +456,7 @@ bool PostprocessX::createDescriptorTables()
 	m_srvDoFTables.resize(m_numMipLevels);
 	for (uint8_t i = 0; i < m_numMipLevels; ++i)
 	{
-		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+		const auto descriptorTable = Util::DescriptorTable::MakeUnique();
 		const Descriptor descriptors[] =
 		{
 			m_source->GetSRV(i, true),
@@ -455,7 +469,7 @@ bool PostprocessX::createDescriptorTables()
 	m_srvDoFUpTables.resize(m_numMipLevels);
 	for (uint8_t i = 0; i < m_numMipLevels; ++i)
 	{
-		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+		const auto descriptorTable = Util::DescriptorTable::MakeUnique();
 		const Descriptor descriptors[] =
 		{
 			i + 1 < m_numMipLevels ? m_filteredImage->GetSRV(i, true) : m_source->GetSRV(i, true),
@@ -467,7 +481,7 @@ bool PostprocessX::createDescriptorTables()
 	}
 
 	{
-		const auto descriptorTable = Util::DescriptorTable::MakeUnique(m_api);
+		const auto descriptorTable = Util::DescriptorTable::MakeUnique();
 		const Descriptor descriptors[] = { m_postImage->GetSRV(), m_avgLum->GetSRV(), m_circleOfConf->GetSRV() };
 		descriptorTable->SetDescriptors(0, static_cast<uint32_t>(size(descriptors)), descriptors);
 		XUSG_X_RETURN(m_uavSrvTables[SRV_COLOR_AVG_LUM], descriptorTable->GetCbvSrvUavTable(m_descriptorTableLib.get()), false);
@@ -476,7 +490,7 @@ bool PostprocessX::createDescriptorTables()
 	return true;
 }
 
-void PostprocessX::circleOfConfusion(CommandList* pCommandList)
+void PostprocessX::circleOfConfusion(const CommandList* pCommandList)
 {
 	const auto weekly = [](double t)
 	{
@@ -519,7 +533,7 @@ void PostprocessX::circleOfConfusion(CommandList* pCommandList)
 	pCommandList->Dispatch(XUSG_DIV_UP(width, 8), XUSG_DIV_UP(height, 8), 1);
 }
 
-void PostprocessX::bilateralDown(CommandList* pCommandList, Texture* pSource)
+void PostprocessX::bilateralDown(const CommandList* pCommandList, Texture* pSource)
 {
 	pCommandList->SetComputePipelineLayout(m_exPipelineLayouts[BILATERAL_DOF_DOWN]);
 	pCommandList->SetPipelineState(m_exPipelines[BILATERAL_DOF_DOWN]);
@@ -547,7 +561,7 @@ void PostprocessX::bilateralDown(CommandList* pCommandList, Texture* pSource)
 	}
 }
 
-void PostprocessX::bilateralUp(CommandList* pCommandList)
+void PostprocessX::bilateralUp(const CommandList* pCommandList)
 {
 	const uint8_t numPasses = m_numMipLevels - 1;
 
@@ -585,7 +599,7 @@ void PostprocessX::bilateralUp(CommandList* pCommandList)
 	}
 }
 
-void PostprocessX::toneMappedBlit(CommandList* pCommandList, Texture* pDst, Texture* pSrc,
+void PostprocessX::toneMappedBlit(const CommandList* pCommandList, Texture* pDst, Texture* pSrc,
 	const DescriptorTable& uavTable, const DescriptorTable& srvTable, bool inverse)
 {
 	ResourceBarrier barriers[2];

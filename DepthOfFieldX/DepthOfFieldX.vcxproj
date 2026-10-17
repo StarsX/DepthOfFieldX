@@ -96,6 +96,7 @@ COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
     <FxCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)XUSG\Shaders;$(ProjectDir)XUSG\Advanced</AdditionalIncludeDirectories>
       <ShaderModel>5.0</ShaderModel>
+      <AllResourcesBound>true</AllResourcesBound>
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -117,6 +118,7 @@ COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
     <PostBuildEvent>
       <Command>COPY /Y "$(OutDir)*.exe" "$(ProjectDir)..\Bin\"
 COPY /Y "$(OutDir)*.cso" "$(ProjectDir)..\Bin\"
+COPY /Y "$(OutDir)*.spv" "$(ProjectDir)..\Bin\"
 COPY /Y "$(ProjectDir)XUSG\Bin\$(Platform)\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
 COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
 </Command>
@@ -124,6 +126,7 @@ COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
     <FxCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)XUSG\Shaders;$(ProjectDir)XUSG\Advanced</AdditionalIncludeDirectories>
       <ShaderModel>5.0</ShaderModel>
+      <AllResourcesBound>true</AllResourcesBound>
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -156,6 +159,7 @@ COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
     <FxCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)XUSG\Shaders;$(ProjectDir)XUSG\Advanced</AdditionalIncludeDirectories>
       <ShaderModel>5.0</ShaderModel>
+      <AllResourcesBound>true</AllResourcesBound>
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -181,6 +185,7 @@ COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
     <PostBuildEvent>
       <Command>COPY /Y "$(OutDir)*.exe" "$(ProjectDir)..\Bin\"
 COPY /Y "$(OutDir)*.cso" "$(ProjectDir)..\Bin\"
+COPY /Y "$(OutDir)*.spv" "$(ProjectDir)..\Bin\"
 COPY /Y "$(ProjectDir)XUSG\Bin\$(Platform)\$(Configuration)\*.dll" "$(ProjectDir)..\Bin\"
 COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
 </Command>
@@ -188,8 +193,19 @@ COPY /Y "$(ProjectDir)dxc\$(Platform)\*.dll" "$(ProjectDir)..\Bin\"
     <FxCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)XUSG\Shaders;$(ProjectDir)XUSG\Advanced</AdditionalIncludeDirectories>
       <ShaderModel>5.0</ShaderModel>
+      <AllResourcesBound>true</AllResourcesBound>
     </FxCompile>
   </ItemDefinitionGroup>
+  <Target Name="CompileSpirv" BeforeTargets="ClCompile" DependsOnTargets="FxCompile">
+    <ItemGroup>
+      <SpirvShader Include="@(FxCompile)">
+        <Profile Condition="'%(ShaderType)' == 'Vertex'">vs_6_2</Profile>
+        <Profile Condition="'%(ShaderType)' == 'Pixel'">ps_6_2</Profile>
+        <Profile Condition="'%(ShaderType)' == 'Compute'">cs_6_2</Profile>
+      </SpirvShader>
+    </ItemGroup>
+    <Exec Command="&quot;$(VULKAN_SDK)\Bin\dxc.exe&quot; -spirv -T %(SpirvShader.Profile) -E main -fspv-target-env=vulkan1.1 -all-resources-bound -Zpc -fvk-use-dx-position-w -enable-16bit-types -Wno-conversion -D XUSG_SPIRV=1 -I &quot;$(ProjectDir)Shaders&quot; -I &quot;$(ProjectDir)XUSG\Advanced&quot; -Fo &quot;$(OutDir)%(SpirvShader.Filename).spv&quot; &quot;%(SpirvShader.FullPath)&quot;" />
+  </Target>
   <ItemGroup>
     <ClInclude Include="Common\d3d12.h" />
     <ClInclude Include="Common\d3dcommon.h" />

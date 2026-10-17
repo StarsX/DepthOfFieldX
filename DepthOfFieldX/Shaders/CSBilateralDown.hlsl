@@ -5,8 +5,9 @@
 #include "DofCommon.hlsli"
 
 //--------------------------------------------------------------------------------------
-// Constant buffer
+// Constant buffers
 //--------------------------------------------------------------------------------------
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_CBV)
 cbuffer cb
 {
 	uint g_level;
@@ -15,15 +16,20 @@ cbuffer cb
 //--------------------------------------------------------------------------------------
 // Textures
 //--------------------------------------------------------------------------------------
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_UAV)
 RWTexture2D<float3> g_rwDst;
+XUSG_VK_BINDING(1, XUSG_VK_SPACE_UAV)
 RWTexture2D<float> g_rwCoC;
 
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_SRV)
 Texture2D g_txSrc;
+XUSG_VK_BINDING(1, XUSG_VK_SPACE_SRV)
 Texture2D<float> g_txCoC;
 
 //--------------------------------------------------------------------------------------
-// Texture sampler
+// Texture samplers
 //--------------------------------------------------------------------------------------
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_SAMPLER)
 SamplerState g_sampler;
 
 //--------------------------------------------------------------------------------------

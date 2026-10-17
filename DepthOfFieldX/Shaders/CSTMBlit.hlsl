@@ -6,6 +6,8 @@
 // Definitions
 //--------------------------------------------------------------------------------------
 
+#include "XUSGAdvanced.h"
+
 // Use YCoCg dependently
 #if	_USE_YCOCG_
 #define GET_LUMA4(v)	((v).x)
@@ -18,7 +20,10 @@ static const min16float3 g_luma4Base = { 1.0, 2.0, 1.0 };
 //--------------------------------------------------------------------------------------
 // Textures
 //--------------------------------------------------------------------------------------
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_UAV)
 RWTexture2D<float4> g_rwDst;
+
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_SRV)
 Texture2D g_txSrc;
 
 //--------------------------------------------------------------------------------------

@@ -19,7 +19,7 @@
 #define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers.
 #endif
 
-#define XUSG_INTERFACE __declspec(dllimport)
+#define XUSG_INTERFACE
 
 #include <windows.h>
 

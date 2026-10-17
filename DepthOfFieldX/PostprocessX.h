@@ -7,7 +7,7 @@
 #include "Advanced/XUSGPostprocess.h"
 
 class PostprocessX :
-    public XUSG::Postprocess_Impl
+	public XUSG::Postprocess_Impl
 {
 public:
 	enum ExPipelineIndex : uint8_t
@@ -22,22 +22,22 @@ public:
 		NUM_EX_PIPELINE
 	};
 
-    PostprocessX(XUSG::API api = XUSG::API::DIRECTX_12);
-    virtual ~PostprocessX();
+	PostprocessX();
+	virtual ~PostprocessX();
 
-	bool Init(const XUSG::Device* pDevice, const XUSG::ShaderLib::sptr& shaderLib,
+	bool Init(XUSG::Device* pDevice, const XUSG::ShaderLib::sptr& shaderLib,
 		const XUSG::Graphics::PipelineLib::sptr& graphicsPipelineLib,
 		const XUSG::Compute::PipelineLib::sptr& computePipelineLib,
 		const XUSG::PipelineLayoutLib::sptr& pipelineLayoutLib,
 		const XUSG::DescriptorTableLib::sptr& descriptorTableLib,
 		XUSG::Format hdrFormat, XUSG::Format ldrFormat);
-	bool ChangeWindowSize(const XUSG::Device* pDevice, const XUSG::Texture* pReference);
+	bool ChangeWindowSize(XUSG::Device* pDevice, const XUSG::Texture* pReference);
 	bool SetDepth(XUSG::DepthStencil* pDepth);
 
 	void SetTime(double time);
-	void DepthOfField(XUSG::CommandList* pCommandList, XUSG::Texture* pSceneColor,
+	void DepthOfField(const XUSG::CommandList* pCommandList, XUSG::Texture* pSceneColor,
 		const XUSG::DescriptorTable& uavTable, const XUSG::DescriptorTable& srvTable);
-	void TemporalAA(XUSG::CommandList* pCommandList, uint8_t numUAVs, XUSG::Texture** ppDsts,
+	void TemporalAA(const XUSG::CommandList* pCommandList, uint8_t numUAVs, XUSG::Texture** ppDsts,
 		const XUSG::DescriptorTable& uavTable, uint8_t numSRVs, XUSG::Texture** ppSrcs,
 		const XUSG::DescriptorTable& srvTable);
 
@@ -60,10 +60,10 @@ protected:
 	bool createPipelines(XUSG::Format hdrFormat, XUSG::Format ldrFormat);
 	bool createDescriptorTables();
 
-	void circleOfConfusion(XUSG::CommandList* pCommandList);
-	void bilateralDown(XUSG::CommandList* pCommandList, XUSG::Texture* pSource);
-	void bilateralUp(XUSG::CommandList* pCommandList);
-	void toneMappedBlit(XUSG::CommandList* pCommandList, XUSG::Texture* pDst, XUSG::Texture* pSrc,
+	void circleOfConfusion(const XUSG::CommandList* pCommandList);
+	void bilateralDown(const XUSG::CommandList* pCommandList, XUSG::Texture* pSource);
+	void bilateralUp(const XUSG::CommandList* pCommandList);
+	void toneMappedBlit(const XUSG::CommandList* pCommandList, XUSG::Texture* pDst, XUSG::Texture* pSrc,
 		const XUSG::DescriptorTable& srvTable, const XUSG::DescriptorTable& uavTable, bool inverse);
 
 	XUSG::PipelineLayout		m_exPipelineLayouts[NUM_EX_PIPELINE];
@@ -87,5 +87,5 @@ protected:
 
 	uint8_t m_numMipLevels;
 
-	double m_time = 0.0;
+	double m_time;
 };

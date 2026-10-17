@@ -11,8 +11,9 @@
 //#define _WAVELET_
 
 //--------------------------------------------------------------------------------------
-// Constant buffer
+// Constant buffers
 //--------------------------------------------------------------------------------------
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_CBV)
 cbuffer cbPerPass
 {
 	uint g_level;
@@ -21,13 +22,20 @@ cbuffer cbPerPass
 //--------------------------------------------------------------------------------------
 // Textures
 //--------------------------------------------------------------------------------------
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_UAV)
 RWTexture2D<float3> g_rwDst;
+XUSG_VK_BINDING(1, XUSG_VK_SPACE_UAV)
 RWTexture2D<float> g_rwCoC;
 
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_SRV)
 Texture2D g_txCoarser		: register (t0);
+XUSG_VK_BINDING(1, XUSG_VK_SPACE_SRV)
 Texture2D g_txCoCCoarser	: register (t1);
+XUSG_VK_BINDING(2, XUSG_VK_SPACE_SRV)
 Texture2D g_txSrc			: register (t2);
+XUSG_VK_BINDING(3, XUSG_VK_SPACE_SRV)
 Texture2D g_txCoC			: register (t3);
+XUSG_VK_BINDING(4, XUSG_VK_SPACE_SRV)
 Texture2D g_txSrcCoarser	: register (t4);
 
 //--------------------------------------------------------------------------------------

@@ -49,7 +49,8 @@
 //--------------------------------------------------------------------------------------
 // Constant buffers
 //--------------------------------------------------------------------------------------
-cbuffer cbImmutable	: register (b0)
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_CBV)
+cbuffer cbImmutable : register(b0)
 {
 	float2 g_viewport;
 };
@@ -59,7 +60,7 @@ static const uint g_historyMask = (1u << g_historyBits) - 1;
 static const float g_historyMax = g_historyMask;
 static const float g_channelMax = (1 << 8) - 1.0;
 
-static const min16float3 g_luma4Base = { 1.0, 2.0, 1.0 };
+static const float3 g_luma4Base = { 1.0, 2.0, 1.0 };
 static const int2 g_texOffsets[] =
 {
 #if	!_CN_ONLY_
@@ -71,29 +72,48 @@ static const int2 g_texOffsets[] =
 //--------------------------------------------------------------------------------------
 // Textures
 //--------------------------------------------------------------------------------------
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_UAV)
 RWTexture2D<float4> g_rwColor;
 
 #if _R11G11B10_
+XUSG_VK_BINDING(1, XUSG_VK_SPACE_UAV)
 RWTexture2D<float>	g_rwMetadata;
 
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_SRV)
 Texture2D<float3>	g_txCurrent;
+XUSG_VK_BINDING(1, XUSG_VK_SPACE_SRV)
 Texture2D<float3>	g_txHistory;
+XUSG_VK_BINDING(2, XUSG_VK_SPACE_SRV)
 Texture2D<float2>	g_txVelocity;
+XUSG_VK_BINDING(3, XUSG_VK_SPACE_SRV)
 Texture2D<float>	g_txShadeAmt;
+XUSG_VK_BINDING(4, XUSG_VK_SPACE_SRV)
 Texture2D<float>	g_txHistMeta;
-#else
-Texture2D			g_txCurrent;
-Texture2D			g_txHistory;
-Texture2D<float2>	g_txVelocity;
-#endif
 
 #ifdef _HAS_DOF_
+XUSG_VK_BINDING(5, XUSG_VK_SPACE_SRV)
 Texture2D<float>	g_txCoC;
+#endif
+
+#else
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_SRV)
+Texture2D			g_txCurrent;
+XUSG_VK_BINDING(1, XUSG_VK_SPACE_SRV)
+Texture2D			g_txHistory;
+XUSG_VK_BINDING(2, XUSG_VK_SPACE_SRV)
+Texture2D<float2>	g_txVelocity;
+
+#ifdef _HAS_DOF_
+XUSG_VK_BINDING(3, XUSG_VK_SPACE_SRV)
+Texture2D<float>	g_txCoC;
+#endif
+
 #endif
 
 //--------------------------------------------------------------------------------------
 // Texture samplers
 //--------------------------------------------------------------------------------------
+XUSG_VK_BINDING(0, XUSG_VK_SPACE_SAMPLER)
 SamplerState		g_smpLinear;
 
 //--------------------------------------------------------------------------------------
@@ -102,7 +122,7 @@ SamplerState		g_smpLinear;
 min16float3 rgbToYCoCg(min16float3 rgb)
 {
 	const min16float y = dot(rgb, min16float3(1.0, 2.0, 1.0));
-	const min16float co = dot(rgb, min16float3(2.0, 0.0, -2.0));
+	const min16float co = dot(rgb.xz, min16float2(2.0, -2.0));
 	const min16float cg = dot(rgb, min16float3(-1.0, 2.0, -1.0));
 
 	return min16float3(y, co, cg);
@@ -113,13 +133,10 @@ min16float3 rgbToYCoCg(min16float3 rgb)
 //--------------------------------------------------------------------------------------
 min16float3 yCoCgToRGB(min16float3 yCoCg)
 {
-	const min16float y = yCoCg.x * 0.25;
-	const min16float co = yCoCg.y * 0.25;
-	const min16float cg = yCoCg.z * 0.25;
-
-	const min16float r = y + co - cg;
-	const min16float g = y + cg;
-	const min16float b = y - co - cg;
+	yCoCg *= 0.25;
+	const min16float r = yCoCg.x + yCoCg.y - yCoCg.z;
+	const min16float g = yCoCg.x + yCoCg.z;
+	const min16float b = yCoCg.x - yCoCg.y - yCoCg.z;
 
 	return min16float3(r, g, b);
 }
@@ -222,7 +239,7 @@ float DecodeHistory(inout float history)
 //--------------------------------------------------------------------------------------
 // Maxinum velocity of 3x3
 //--------------------------------------------------------------------------------------
-min16float4 VelocityMax(int2 pos)
+float4 VelocityMax(int2 pos)
 {
 	const float2 velocity = g_txVelocity[pos];
 	float2 velocities[NUM_NEIGHBORS_H];
@@ -232,17 +249,17 @@ min16float4 VelocityMax(int2 pos)
 	for (i = 0; i < NUM_NEIGHBORS_H; ++i)
 		velocities[i] = g_txVelocity[pos + g_texOffsets[i + NUM_NEIGHBORS_H]];
 
-	min16float4 velocityMax = min16float2(velocity).xyxy;
-	min16float speed_sq = dot(velocityMax.xy, velocityMax.xy);
+	float4 velocityMax = velocity.xyxy;
+	float speed_sq = dot(velocityMax.xy, velocityMax.xy);
 
 	//[unroll]
 	for (i = 0; i < NUM_NEIGHBORS_H; ++i)
 	{
-		const min16float2 neighbor = min16float2(velocities[i]);
+		const float2 neighbor = velocities[i];
 #if 0
 		velocityMax.xy = max(neighbor, velocityMax.xy);
 #else
-		const min16float speedN_sq = dot(neighbor, neighbor);
+		const float speedN_sq = dot(neighbor, neighbor);
 		if (speedN_sq > speed_sq)
 		{
 			velocityMax.xy = neighbor;
@@ -276,16 +293,16 @@ float2 HistoryShadeAmount(inout float history, float2 uv)
 		history = min(histories[i], history);
 	}
 
-	return min16float2(shadeAmt, shadeBias);
+	return float2(shadeAmt, shadeBias);
 }
 
 //--------------------------------------------------------------------------------------
 // Minimum and maxinum of the neighbor samples, returning Gaussian blurred color
 //--------------------------------------------------------------------------------------
-min16float4 NeighborMinMax(out min16float4 neighborMin, out min16float4 neighborMax,
-	min16float4 current, int2 pos, min16float gamma = 1.0)
+float4 NeighborMinMax(out float4 neighborMin, out float4 neighborMax,
+	float4 current, int2 pos, float gamma = 1.0)
 {
-	static const min16float weights[] =
+	static const float weights[] =
 	{
 #if	!_CN_ONLY_
 		0.5, 0.5, 0.5, 0.5,
@@ -300,55 +317,63 @@ min16float4 NeighborMinMax(out min16float4 neighborMin, out min16float4 neighbor
 	for (i = 0; i < NUM_NEIGHBORS; ++i)
 		neighbors[i] = GetCurrent(pos + g_texOffsets[i]);
 
-	min16float3 mu = current.xyz;
+	min16float3 mu = min16float3(current.xyz);
+	min16float3 color = mu;
+	min16float3 nMin = mu;
+	min16float3 nMax = mu;
 	current.w = current.w < ALPHA_BOUND ? 0.0 : 1.0;
 
 #if	_VARIANCE_AABB_
-#define	m1	mu
+	min16float3 m1 = mu;
 	min16float3 m2 = m1 * m1;
-#else
-	neighborMin.xyz = neighborMax.xyz = mu;
 #endif
 
 	//[unroll]
 	for (i = 0; i < NUM_NEIGHBORS; ++i)
 	{
-		min16float4 neighbor;
-		neighbor.xyz = TM(neighbors[i].xyz);
-		neighbor.w = neighbors[i].w < ALPHA_BOUND ? 0.0 : 1.0;
-		current += neighbor * weights[i];
+		const min16float3 neighbor = TM(neighbors[i].xyz);
+		const float neighborW = neighbors[i].w < ALPHA_BOUND ? 0.0 : 1.0;
+		color += neighbor * min16float(weights[i]);
+		current.w += neighborW * weights[i];
 
 #if	_VARIANCE_AABB_
-		m1 += neighbor.xyz;
-		m2 += neighbor.xyz * neighbor.xyz;
+		m1 += neighbor;
+		m2 += neighbor * neighbor;
 #else
-		neighborMin.xyz = min(neighbor.xyz, neighborMin.xyz);
-		neighborMax.xyz = max(neighbor.xyz, neighborMax.xyz);
+		nMin = min(neighbor, nMin);
+		nMax = max(neighbor, nMax);
 #endif
 	}
 
 #if	_VH_ONLY_
-	current /= 3.0;
+	color /= 3.0;
+	current.w /= 3.0;
 #elif _CN_ONLY_
-	current /= 2.0;
+	color /= 2.0;
+	current.w /= 2.0;
 #else
-	current /= 4.0;
+	color /= 4.0;
+	current.w /= 4.0;
 #endif
 
 #if	_VARIANCE_AABB_
-	mu /= NUM_SAMPLES;
-	const min16float3 sigma = sqrt(abs(m2 / NUM_SAMPLES - mu * mu));
-	const min16float3 gsigma = gamma * sigma;
-	neighborMin.xyz = mu - gsigma;
-	neighborMax.xyz = mu + gsigma;
-	neighborMin.xyz = min(neighborMin.xyz, current.xyz);
-	neighborMax.xyz = max(neighborMax.xyz, current.xyz);
-	neighborMin.w = GET_LUMA4(mu - sigma);
-	neighborMax.w = GET_LUMA4(mu + sigma);
+	m1 /= NUM_SAMPLES;
+	m2 /= NUM_SAMPLES;
+	const min16float3 sigma = sqrt(abs(m2 - m1 * m1));
+	const min16float3 gsigma = min16float(gamma) * sigma;
+	nMin = m1 - gsigma;
+	nMax = m1 + gsigma;
+	nMin = min(nMin, color);
+	nMax = max(nMax, color);
+	neighborMin.w = GET_LUMA4(m1 - sigma);
+	neighborMax.w = GET_LUMA4(m1 + sigma);
 #else
-	neighborMin.w = GET_LUMA4(neighborMin.xyz);
-	neighborMax.w = GET_LUMA4(neighborMax.xyz);
+	neighborMin.w = GET_LUMA4(nMin);
+	neighborMax.w = GET_LUMA4(nMax);
 #endif
+	neighborMin.xyz = nMin;
+	neighborMax.xyz = nMax;
+	current.xyz = color;
 
 	return current;
 }
@@ -363,24 +388,24 @@ min16float3 clipColor(min16float3 color, min16float3 minColor, min16float3 maxCo
 
 	const min16float3 disp = color - cent;
 	const min16float3 dir = abs(disp / dist);
-	const min16float maxComp = max(dir.x, max(dir.y, dir.z));
+	const float maxComp = max(dir.x, max(float(dir.y), dir.z));
 
-	if (maxComp > 1.0) return cent + disp / maxComp;
+	if (maxComp > 1.0) return cent + disp / min16float(maxComp);
 	else return color;
 }
 
 //--------------------------------------------------------------------------------------
 // Clip color with blend
 //--------------------------------------------------------------------------------------
-min16float historyClamp(min16float3 history, min16float3 filtered, min16float3 nMin, min16float3 nMax)
+float historyClamp(float3 history, float3 filtered, float3 nMin, float3 nMax)
 {
-	min16float3 rayDir = filtered - history;
+	float3 rayDir = filtered - history;
 	rayDir = select(abs(rayDir) < (1.0 / 65536.0), (1.0 / 65536.0), rayDir);
-	const min16float3 invRayDir = rcp(rayDir);
+	const float3 invRayDir = rcp(rayDir);
 
-	const min16float3 minIntersect = (nMin - history) * invRayDir;
-	const min16float3 maxIntersect = (nMax - history) * invRayDir;
-	const min16float3 enterIntersect = min(minIntersect, maxIntersect);
+	const float3 minIntersect = (nMin - history) * invRayDir;
+	const float3 maxIntersect = (nMax - history) * invRayDir;
+	const float3 enterIntersect = min(minIntersect, maxIntersect);
 
 	return max(max(enterIntersect.x, enterIntersect.y), enterIntersect.z);
 }
@@ -395,74 +420,76 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	const int2 pos = DTid;
 	const float2 uv = (DTid + 0.5) / g_viewport;
 	const float4 current = GetCurrent(pos);
-	const min16float4 velocity = VelocityMax(pos);
+	const float4 velocity = VelocityMax(pos);
 	const float2 uvBack = uv - velocity.xy;
 	float4 history = GetHistory(uvBack);
 
 	// Speed to history blur
 	static const float2 historyBlurAmp = 4.0 * g_viewport;
-	const min16float2 historyBlurs = min16float2(abs(velocity.xy) * historyBlurAmp);
-	min16float curHistoryBlur = saturate(historyBlurs.x + historyBlurs.y);
+	const float2 historyBlurs = abs(velocity.xy) * historyBlurAmp;
+	float curHistoryBlur = saturate(historyBlurs.x + historyBlurs.y);
 
 	// Decode history weight (that indicates the convergence) and shade amount from metadata
 	const float2 prevShadeAmt = HistoryShadeAmount(history.w, uvBack);
-	min16float historyBlur = min16float(1.0 - history.w / g_historyMax);
+	float historyBlur = 1.0 - history.w / g_historyMax;
 	historyBlur = max(historyBlur, curHistoryBlur);
 	history.w += 1.0;
 
 	// Compute color-space AABB
-	min16float4 neighborMin, neighborMax;
-	min16float4 currentTM = min16float4(TM(current.xyz), current.w);
-	const min16float curShadeAmt = (currentTM.w - ALPHA_BOUND) / (1.0 - ALPHA_BOUND);
+	float4 neighborMin, neighborMax;
+	const min16float3 currentTM = TM(current.xyz);
+	const float curShadeAmt = (current.w - ALPHA_BOUND) / (1.0 - ALPHA_BOUND);
 #ifdef _FORCE_GAMMA_
-	const min16float gamma = _FORCE_GAMMA_;
-#elif _HAS_DOF_
+	const float gamma = _FORCE_GAMMA_;
+#else
+#if _HAS_DOF_
 	const bool hasBokeh = abs(g_txCoC[DTid]) > 1.0;
 #else
 	const bool hasBokeh = false;
 #endif
-	const min16float gamma = historyBlur > 0.0 || current.w < ALPHA_BOUND || hasBokeh ||
+	const float gamma = historyBlur > 0.0 || current.w < ALPHA_BOUND || hasBokeh ||
 		abs(prevShadeAmt.x - curShadeAmt) + prevShadeAmt.y > 1.0 / g_historyMax ? 1.0 : 16.0;
-	min16float4 filtered = NeighborMinMax(neighborMin, neighborMax, currentTM, pos, gamma);
+#endif
+	float4 filtered = NeighborMinMax(neighborMin, neighborMax, float4(currentTM, current.w), pos, gamma);
 
 	// Clip historical color
 	min16float3 historyTM = TM(history.xyz);
 #if _USE_YCOCG_
-	historyTM = clamp(historyTM, neighborMin.xyz, neighborMax.xyz);
+	historyTM = clamp(historyTM, min16float3(neighborMin.xyz), min16float3(neighborMax.xyz));
 #else
-	historyTM = clipColor(historyTM, neighborMin.xyz, neighborMax.xyz);
-	//const min16float clampBlend = historyClamp(historyTM, filtered.xyz, neighborMin.xyz, neighborMax.xyz);
+	historyTM = clipColor(historyTM, min16float3(neighborMin.xyz), min16float3(neighborMax.xyz));
+	//const float clampBlend = historyClamp(historyTM, filtered.xyz, neighborMin.xyz, neighborMax.xyz);
 	//historyTM = lerp(historyTM, filtered.xyz, saturate(clampBlend));
 #endif
-	const min16float contrast = neighborMax.w - neighborMin.w;
+	const float contrast = neighborMax.w - neighborMin.w;
 	//curHistoryBlur *= filtered.w;
 
 	// Add aliasing
 #if _USE_YCOCG_
-	static const min16float lumContrastFactor = 32.0 * 4.0;
+	static const float lumContrastFactor = 32.0 * 4.0;
 #else
-	static const min16float lumContrastFactor = 32.0;
+	static const float lumContrastFactor = 32.0;
 #endif
-	min16float addAlias = historyBlur * 0.5 + 0.25;
+	float addAlias = historyBlur * 0.5 + 0.25;
 	addAlias = saturate(addAlias + 1.0 / (1.0 + contrast * lumContrastFactor));
-	filtered.xyz = lerp(filtered.xyz, currentTM.xyz, addAlias);
+	filtered.xyz = lerp(min16float3(filtered.xyz), currentTM, min16float(addAlias));
 
 	// Calculate blend factor
-	const min16float lumHist = GET_LUMA4(historyTM);
-	const min16float distToClamp = min(abs(neighborMin.w - lumHist), abs(neighborMax.w - lumHist));
+	const float lumHist = GET_LUMA4(historyTM);
+	const float distToClamp = min(abs(neighborMin.w - lumHist), abs(neighborMax.w - lumHist));
 #if 0
 	const float historyAmt = 1.0 / history.w + historyBlur / 8.0;
-	const min16float historyFactor = min16float(distToClamp * historyAmt * (1.0 + historyBlur * historyAmt * 8.0));
-	min16float blend = historyFactor / (distToClamp + contrast);
+	const float historyFactor = distToClamp * historyAmt * (1.0 + historyBlur * historyAmt * 8.0);
+	float blend = historyFactor / (distToClamp + contrast);
 #else
-	const min16float historyAmt = min(min16float(1.0 / history.w + historyBlur / 8.0), 1.0);
-	min16float blend = 0.25 / lerp(8.0, distToClamp + contrast, historyAmt);
+	const float historyAmt = min(1.0 / history.w + historyBlur / 8.0, 1.0);
+	float blend = 0.25 / lerp(8.0, distToClamp + contrast, historyAmt);
 #endif
 	//blend = historyBlur > 0.0 || filtered.w < 1.0 ? blend : 0.03125;
 	blend = min(blend, 0.25);
 
-	min16float3 result = ITM(lerp(historyTM, filtered.xyz, blend));
-	result = any(isnan(result)) ? ITM(filtered.xyz) : result;
+	min16float3 result = ITM(lerp(historyTM, min16float3(filtered.xyz), min16float(blend)));
+	result = any(isnan(float3(result))) ? ITM(min16float3(filtered.xyz)) : result;
 	history.w = min(history.w, (1.0 - curHistoryBlur) * g_historyMax);
 	history.w = EncodeHistory(history.w, curShadeAmt);
 
