@@ -185,31 +185,26 @@ float4 GetCurrent(int2 pos)
 }
 
 //--------------------------------------------------------------------------------------
-// Get history pixel data
+// Get historic metadata
 //--------------------------------------------------------------------------------------
-float4 GetHistory(float2 uv)
+float GetHistoricMetadata(float2 uv, int2 uvOffsets = 0)
 {
 #if _R11G11B10_
-	float4 history;
-	history.xyz = g_txHistory.SampleLevel(g_smpLinear, uv, 0.0);
-	history.w = g_txHistMeta.SampleLevel(g_smpLinear, uv, 0.0);
-
-	return history;
+	return g_txHistMeta[int2(uv * g_viewport) + uvOffsets];
 #else
-	return g_txHistory.SampleLevel(g_smpLinear, uv, 0.0);
+	return g_txHistory[int2(uv * g_viewport) + uvOffsets].w;
 #endif
 }
 
 //--------------------------------------------------------------------------------------
-// Get historic metadata
+// Get history pixel data
 //--------------------------------------------------------------------------------------
-float GetHistoricMetadata(float2 uv, int2 uvOffsets)
+float4 GetHistory(float2 uv)
 {
-#if _R11G11B10_
-	return g_txHistMeta.SampleLevel(g_smpLinear, uv, 0.0, uvOffsets);
-#else
-	return g_txHistory.SampleLevel(g_smpLinear, uv, 0.0, uvOffsets).w;
-#endif
+	const float3 history = g_txHistory.SampleLevel(g_smpLinear, uv, 0.0).xyz;
+	const float metaData = GetHistoricMetadata(uv);
+	
+	return float4(history, metaData);
 }
 
 //--------------------------------------------------------------------------------------
@@ -299,7 +294,7 @@ float2 HistoryShadeAmount(inout float history, float2 uv)
 //--------------------------------------------------------------------------------------
 // Minimum and maxinum of the neighbor samples, returning Gaussian blurred color
 //--------------------------------------------------------------------------------------
-float4 NeighborMinMax(out float4 neighborMin, out float4 neighborMax,
+min16float4 NeighborMinMax(out float4 neighborMin, out float4 neighborMax,
 	float4 current, int2 pos, float gamma = 1.0)
 {
 	static const float weights[] =
@@ -373,9 +368,8 @@ float4 NeighborMinMax(out float4 neighborMin, out float4 neighborMax,
 #endif
 	neighborMin.xyz = nMin;
 	neighborMax.xyz = nMax;
-	current.xyz = color;
 
-	return current;
+	return min16float4(color, current.w);
 }
 
 //--------------------------------------------------------------------------------------
@@ -450,7 +444,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	const float gamma = historyBlur > 0.0 || current.w < ALPHA_BOUND || hasBokeh ||
 		abs(prevShadeAmt.x - curShadeAmt) + prevShadeAmt.y > 1.0 / g_historyMax ? 1.0 : 16.0;
 #endif
-	float4 filtered = NeighborMinMax(neighborMin, neighborMax, float4(currentTM, current.w), pos, gamma);
+	min16float4 filtered = NeighborMinMax(neighborMin, neighborMax, float4(currentTM, current.w), pos, gamma);
 
 	// Clip historical color
 	min16float3 historyTM = TM(history.xyz);
@@ -472,7 +466,7 @@ void main(uint2 DTid : SV_DispatchThreadID)
 #endif
 	float addAlias = historyBlur * 0.5 + 0.25;
 	addAlias = saturate(addAlias + 1.0 / (1.0 + contrast * lumContrastFactor));
-	filtered.xyz = lerp(min16float3(filtered.xyz), currentTM, min16float(addAlias));
+	filtered.xyz = lerp(filtered.xyz, currentTM, min16float(addAlias));
 
 	// Calculate blend factor
 	const float lumHist = GET_LUMA4(historyTM);
@@ -488,8 +482,8 @@ void main(uint2 DTid : SV_DispatchThreadID)
 	//blend = historyBlur > 0.0 || filtered.w < 1.0 ? blend : 0.03125;
 	blend = min(blend, 0.25);
 
-	min16float3 result = ITM(lerp(historyTM, min16float3(filtered.xyz), min16float(blend)));
-	result = any(isnan(float3(result))) ? ITM(min16float3(filtered.xyz)) : result;
+	min16float3 result = ITM(lerp(historyTM, filtered.xyz, min16float(blend)));
+	result = any(isnan(float3(result))) ? ITM(filtered.xyz) : result;
 	history.w = min(history.w, (1.0 - curHistoryBlur) * g_historyMax);
 	history.w = EncodeHistory(history.w, curShadeAmt);
 
