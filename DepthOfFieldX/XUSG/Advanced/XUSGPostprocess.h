@@ -25,14 +25,14 @@ namespace XUSG
 
 		void Update(const DescriptorTable& cbvImmutable, const DescriptorTable& cbvPerFrameTable,
 			uint8_t frameIndex, float timeStep);
-		void Render(const CommandList* pCommandList, RenderTarget* pDst, Texture* pSrc,
+		void Render(CommandList* pCommandList, RenderTarget* pDst, Texture* pSrc,
 			const DescriptorTable& srvTable, bool clearRT = false) const;
-		void ScreenRender(const CommandList* pCommandList, PipelineIndex pipelineIndex,
+		void ScreenRender(CommandList* pCommandList, PipelineIndex pipelineIndex,
 			const DescriptorTable& srvTable, bool hasImmutableCB, bool hasPerFrameCB) const;
-		void LumAdaption(const CommandList* pCommandList, const DescriptorTable& uavSrvTable) const;
-		void Antialias(const CommandList* pCommandList, uint8_t numRTVs, RenderTarget** ppDsts,
+		void LumAdaption(CommandList* pCommandList, const DescriptorTable& uavSrvTable) const;
+		void Antialias(CommandList* pCommandList, uint8_t numRTVs, RenderTarget** ppDsts,
 			uint8_t numSRVs, Texture** ppSrcs, const DescriptorTable& srvTable) const;
-		void Unsharp(const CommandList* pCommandList, uint8_t numRTVs,
+		void Unsharp(CommandList* pCommandList, uint8_t numRTVs,
 			const Descriptor* pRTVs, const DescriptorTable& srvTable) const;
 
 		DescriptorTable CreateTAASrvTable(const Descriptor& srvCurrent, const Descriptor& srvPrevious,

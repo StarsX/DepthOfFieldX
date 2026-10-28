@@ -109,7 +109,7 @@ void Postprocess_Impl::Update(const DescriptorTable& cbvImmutable, const Descrip
 	m_timeStep = timeStep > -2.0f ? timeStep : -1.0f;
 }
 
-void Postprocess_Impl::Render(const CommandList* pCommandList, RenderTarget* pDst, Texture* pSrc,
+void Postprocess_Impl::Render(CommandList* pCommandList, RenderTarget* pDst, Texture* pSrc,
 	const DescriptorTable& srvTable, bool clearRT) const
 {
 	// Post-process effects
@@ -170,7 +170,7 @@ void Postprocess_Impl::Render(const CommandList* pCommandList, RenderTarget* pDs
 	ScreenRender(pCommandList, TONE_MAP, m_uavSrvTables[SRV_COLOR_AVG_LUM], false, false);
 }
 
-void Postprocess_Impl::ScreenRender(const CommandList* pCommandList, PipelineIndex pipelineIndex,
+void Postprocess_Impl::ScreenRender(CommandList* pCommandList, PipelineIndex pipelineIndex,
 	const DescriptorTable& srvTable, bool hasImmutableCB, bool hasPerFrameCB) const
 {
 	// Set pipeline layout and descriptor tables
@@ -187,7 +187,7 @@ void Postprocess_Impl::ScreenRender(const CommandList* pCommandList, PipelineInd
 	pCommandList->Draw(3, 1, 0, 0);
 }
 
-void Postprocess_Impl::LumAdaption(const CommandList* pCommandList, const DescriptorTable& uavSrvTable) const
+void Postprocess_Impl::LumAdaption(CommandList* pCommandList, const DescriptorTable& uavSrvTable) const
 {
 	// Set shader constants
 	const auto pCBTimeStep = static_cast<float*>(m_cbTimeStep->Map(m_frameIndex));
@@ -205,7 +205,7 @@ void Postprocess_Impl::LumAdaption(const CommandList* pCommandList, const Descri
 	pCommandList->Dispatch(1, 1, 1);
 }
 
-void Postprocess_Impl::Antialias(const CommandList* pCommandList, uint8_t numRTVs, RenderTarget** ppDsts,
+void Postprocess_Impl::Antialias(CommandList* pCommandList, uint8_t numRTVs, RenderTarget** ppDsts,
 	uint8_t numSRVs, Texture** ppSrcs, const DescriptorTable& srvTable) const
 {
 	// Set barriers
@@ -229,7 +229,7 @@ void Postprocess_Impl::Antialias(const CommandList* pCommandList, uint8_t numRTV
 	ScreenRender(pCommandList, ANTIALIAS, srvTable, true, false);
 }
 
-void Postprocess_Impl::Unsharp(const CommandList* pCommandList, uint8_t numRTVs,
+void Postprocess_Impl::Unsharp(CommandList* pCommandList, uint8_t numRTVs,
 	const Descriptor* pRTVs, const DescriptorTable& srvTable) const
 {
 	// Set render target

@@ -35,9 +35,9 @@ public:
 	bool SetDepth(XUSG::DepthStencil* pDepth);
 
 	void SetTime(double time);
-	void DepthOfField(const XUSG::CommandList* pCommandList, XUSG::Texture* pSceneColor,
+	void DepthOfField(XUSG::CommandList* pCommandList, XUSG::Texture* pSceneColor,
 		const XUSG::DescriptorTable& uavTable, const XUSG::DescriptorTable& srvTable);
-	void TemporalAA(const XUSG::CommandList* pCommandList, uint8_t numUAVs, XUSG::Texture** ppDsts,
+	void TemporalAA(XUSG::CommandList* pCommandList, uint8_t numUAVs, XUSG::Texture** ppDsts,
 		const XUSG::DescriptorTable& uavTable, uint8_t numSRVs, XUSG::Texture** ppSrcs,
 		const XUSG::DescriptorTable& srvTable);
 
@@ -60,10 +60,10 @@ protected:
 	bool createPipelines(XUSG::Format hdrFormat, XUSG::Format ldrFormat);
 	bool createDescriptorTables();
 
-	void circleOfConfusion(const XUSG::CommandList* pCommandList);
-	void bilateralDown(const XUSG::CommandList* pCommandList, XUSG::Texture* pSource);
-	void bilateralUp(const XUSG::CommandList* pCommandList);
-	void toneMappedBlit(const XUSG::CommandList* pCommandList, XUSG::Texture* pDst, XUSG::Texture* pSrc,
+	void circleOfConfusion(XUSG::CommandList* pCommandList);
+	void bilateralDown(XUSG::CommandList* pCommandList, XUSG::Texture* pSource);
+	void bilateralUp(XUSG::CommandList* pCommandList);
+	void toneMappedBlit(XUSG::CommandList* pCommandList, XUSG::Texture* pDst, XUSG::Texture* pSrc,
 		const XUSG::DescriptorTable& srvTable, const XUSG::DescriptorTable& uavTable, bool inverse);
 
 	XUSG::PipelineLayout		m_exPipelineLayouts[NUM_EX_PIPELINE];

@@ -99,7 +99,7 @@ void PostprocessX::SetTime(double time)
 	m_time = time;
 }
 
-void PostprocessX::DepthOfField(const CommandList* pCommandList, Texture* pSceneColor,
+void PostprocessX::DepthOfField(CommandList* pCommandList, Texture* pSceneColor,
 	const DescriptorTable& uavTable, const DescriptorTable& srvTable)
 {
 #ifdef _TONE_MAPPED_BLIT_
@@ -136,7 +136,7 @@ void PostprocessX::DepthOfField(const CommandList* pCommandList, Texture* pScene
 #endif
 }
 
-void PostprocessX::TemporalAA(const CommandList* pCommandList, uint8_t numUAVs, Texture** ppDsts,
+void PostprocessX::TemporalAA(CommandList* pCommandList, uint8_t numUAVs, Texture** ppDsts,
 	const DescriptorTable& uavTable, uint8_t numSRVs, Texture** ppSrcs, const DescriptorTable& srvTable)
 {
 	// Set barriers
@@ -490,7 +490,7 @@ bool PostprocessX::createDescriptorTables()
 	return true;
 }
 
-void PostprocessX::circleOfConfusion(const CommandList* pCommandList)
+void PostprocessX::circleOfConfusion(CommandList* pCommandList)
 {
 	const auto weekly = [](double t)
 	{
@@ -533,7 +533,7 @@ void PostprocessX::circleOfConfusion(const CommandList* pCommandList)
 	pCommandList->Dispatch(XUSG_DIV_UP(width, 8), XUSG_DIV_UP(height, 8), 1);
 }
 
-void PostprocessX::bilateralDown(const CommandList* pCommandList, Texture* pSource)
+void PostprocessX::bilateralDown(CommandList* pCommandList, Texture* pSource)
 {
 	pCommandList->SetComputePipelineLayout(m_exPipelineLayouts[BILATERAL_DOF_DOWN]);
 	pCommandList->SetPipelineState(m_exPipelines[BILATERAL_DOF_DOWN]);
@@ -561,7 +561,7 @@ void PostprocessX::bilateralDown(const CommandList* pCommandList, Texture* pSour
 	}
 }
 
-void PostprocessX::bilateralUp(const CommandList* pCommandList)
+void PostprocessX::bilateralUp(CommandList* pCommandList)
 {
 	const uint8_t numPasses = m_numMipLevels - 1;
 
@@ -599,7 +599,7 @@ void PostprocessX::bilateralUp(const CommandList* pCommandList)
 	}
 }
 
-void PostprocessX::toneMappedBlit(const CommandList* pCommandList, Texture* pDst, Texture* pSrc,
+void PostprocessX::toneMappedBlit(CommandList* pCommandList, Texture* pDst, Texture* pSrc,
 	const DescriptorTable& uavTable, const DescriptorTable& srvTable, bool inverse)
 {
 	ResourceBarrier barriers[2];
