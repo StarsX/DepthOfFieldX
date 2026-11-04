@@ -81,7 +81,7 @@ bool Postprocess_Impl::Init(Device* pDevice, const ShaderLib::sptr& shaderLib,
 	// Create constant buffer
 	m_cbTimeStep = ConstantBuffer::MakeUnique();
 	XUSG_N_RETURN(m_cbTimeStep->Create(pDevice, sizeof(float[FrameCount]), FrameCount,
-		nullptr, MemoryType::UPLOAD, MemoryFlag::NONE, L"cbTimeStep"), false);
+		nullptr, MemoryType::GPU_UPLOAD, MemoryFlag::NONE, L"cbTimeStep"), false);
 
 	return true;
 }
@@ -143,7 +143,8 @@ void Postprocess_Impl::Render(CommandList* pCommandList, RenderTarget* pDst, Tex
 
 	// Generate Mips
 	numBarriers = m_avgLum->SetBarrier(barriers, ResourceState::UNORDERED_ACCESS,
-		0, XUSG_BARRIER_ALL_SUBRESOURCES, BarrierFlag::NONE, ResourceState::COMMON);
+		0, XUSG_BARRIER_ALL_SUBRESOURCES, BarrierFlag::NONE,
+		Device::GetApi() == API::VULKAN ? ResourceState::AUTO : ResourceState::COMMON);
 	numBarriers = m_logLum->GenerateMips(pCommandList, barriers, ResourceState::ALL_SHADER_RESOURCE,
 		m_pipelineLayouts[BLIT_LOG_LUM], m_pipelines[BLIT_LOG_LUM],
 		&m_uavSrvTables[SRV_LOG_LUM + 1], TEXTURES, XUSG_NULL, 0, numBarriers);
